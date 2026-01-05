@@ -1,4 +1,4 @@
-# 🎹 AureNet - RGB Keyboard Monitoring
+# 🎹 CMonKey - RGB Keyboard Monitoring
 
 **Turn your RGB keyboard into a real-time server monitoring dashboard.**
 
