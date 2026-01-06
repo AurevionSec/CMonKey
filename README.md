@@ -8,29 +8,29 @@ Each key represents a host. Colors show status at a glance. Animations alert you
 
 ---
 
-## ✨ Features
+##  Features
 
-- **🖥️ Host Monitoring** - Each key = one host from CheckMK
-- **🎨 Zone Colors** - Different colors for servers, network, IoT, mobile devices
-- **💥 Supernova Animation** - Explosive effect when host goes critical
-- **🔥 Phoenix Animation** - Rising animation when host recovers
-- **🕳️ Blackhole Animation** - Host disappears from monitoring
-- **✨ Spawn Animation** - New host detected
-- **⚠️ Warning Pulse** - Yellow pulsing for warning state
-- **🖱️ GUI Hostlist** - Press Right-CTRL to see all hosts
-- **🎵 Audio Visualizer** - Alternative mode with music reactive lighting
+- ** Host Monitoring** - Each key = one host from CheckMK
+- ** Zone Colors** - Different colors for servers, network, IoT, mobile devices
+- ** Supernova Animation** - Explosive effect when host goes critical
+- ** Phoenix Animation** - Rising animation when host recovers
+- ** Blackhole Animation** - Host disappears from monitoring
+- ** Spawn Animation** - New host detected
+- ** Warning Pulse** - Yellow pulsing for warning state
+- ** GUI Hostlist** - Press Right-CTRL to see all hosts
+- ** Audio Visualizer** - Alternative mode with music reactive lighting
 
-## 🎬 Animations
+##  Animations
 
 | State Change | Animation | Description |
 |--------------|-----------|-------------|
-| OK → CRITICAL | 💥 Supernova | Bright explosion, shockwave spreads |
-| CRITICAL → OK | 🔥 Phoenix | Green flames rising |
-| OK → WARNING | ⚡ Warning | Yellow pulse begins |
-| Host disappears | 🕳️ Blackhole | Implodes to darkness |
-| New host | ✨ Spawn | Sparkle effect |
+| OK → CRITICAL |  Supernova | Bright explosion, shockwave spreads |
+| CRITICAL → OK |  Phoenix | Green flames rising |
+| OK → WARNING |  Warning | Yellow pulse begins |
+| Host disappears |  Blackhole | Implodes to darkness |
+| New host |  Spawn | Sparkle effect |
 
-## 🎨 Zone Colors
+## Zone Colors
 
 Hosts are colored by category:
 
@@ -46,14 +46,14 @@ Hosts are colored by category:
 | Cameras | 🔴 Red-Orange | cam, ring, security |
 | Smart Home | ⬜ Warm White | home, assistant |
 
-## 📋 Requirements
+## Requirements
 
 - **Keyboard**: Roccat Vulcan AIMO (other OpenRGB keyboards may work)
 - **OS**: Linux (tested on Arch/Hyprland)
 - **Monitoring**: CheckMK instance with API access
 - **Software**: OpenRGB server running
 
-## 🚀 Installation
+## Installation
 
 ```bash
 # Clone repository
@@ -79,7 +79,7 @@ export CHECKMK_SECRET="your-api-secret"
 python3 rgb_keyboard.py
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 Edit the CheckMK settings in `rgb_keyboard.py`:
 
@@ -89,7 +89,7 @@ CHECKMK_USER = "automation"
 CHECKMK_SECRET = "your-secret"
 ```
 
-## ⌨️ Controls
+## Controls
 
 | Key | Action |
 |-----|--------|
@@ -115,7 +115,7 @@ Press **Right CTRL** to open a floating window showing all hosts:
 - Press RCTRL + key to highlight specific host
 - ESC or click outside to close
 
-## 🔧 Autostart (systemd)
+## Autostart (systemd)
 
 ```bash
 # Create service
@@ -141,7 +141,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now rgb-keyboard.service
 ```
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Ideas:
 
@@ -150,11 +150,11 @@ Contributions welcome! Ideas:
 - Custom color themes
 - Web configuration interface
 
-## 📜 License
+## License
 
 MIT License - see [LICENSE](LICENSE)
 
-## ☕ Support
+## Support
 
 If you find this useful:
 
