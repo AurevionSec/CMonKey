@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
 """Schwebendes Hostlist-Fenster fuer RGB Keyboard CheckMK Monitor."""
 
-import sys
 import json
 import os
-from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QScrollArea, QFrame, QPushButton
-)
+import sys
+
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 HOSTS_FILE = "/tmp/checkmk_hosts.json"
 JUMP_FILE = "/tmp/hostlist_jump.txt"
@@ -57,9 +64,9 @@ class HostListWindow(QWidget):
 
         self.setWindowTitle("CheckMK Hosts")
         self.setWindowFlags(
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setup_ui()
@@ -157,7 +164,7 @@ class HostListWindow(QWidget):
 
     def load_hosts(self):
         self.host_labels = {}
-        
+
         while self.hosts_layout.count():
             child = self.hosts_layout.takeAt(0)
             if child.widget():
@@ -168,7 +175,7 @@ class HostListWindow(QWidget):
             return
 
         try:
-            with open(HOSTS_FILE, 'r') as f:
+            with open(HOSTS_FILE, "r") as f:
                 hosts = json.load(f)
         except Exception as e:
             self.status_label.setText(f"Fehler: {e}")
@@ -190,16 +197,21 @@ class HostListWindow(QWidget):
                     break
 
                 h = hosts[host_idx]
-                state = h.get('state', 0)
-                name = h.get('name', '???')[:35]
+                state = h.get("state", 0)
+                name = h.get("name", "???")[:35]
                 color = STATE_COLORS.get(state, "#666")
 
-                if state == 0: ok += 1
-                elif state == 1: warn += 1
-                elif state == 2: crit += 1
+                if state == 0:
+                    ok += 1
+                elif state == 1:
+                    warn += 1
+                elif state == 2:
+                    crit += 1
 
-                label = QLabel(f"  {host_idx+1:2}. {name}")
-                label.setStyleSheet(f"color: {color}; font-size: 12px; font-family: monospace;")
+                label = QLabel(f"  {host_idx + 1:2}. {name}")
+                label.setStyleSheet(
+                    f"color: {color}; font-size: 12px; font-family: monospace;"
+                )
                 label.setProperty("base_color", color)
                 label.setProperty("host_idx", host_idx)
                 self.hosts_layout.addWidget(label)
@@ -207,38 +219,47 @@ class HostListWindow(QWidget):
                 host_idx += 1
 
         self.hosts_layout.addStretch()
-        self.status_label.setText(f"{len(hosts)} Hosts | OK:{ok} WARN:{warn} CRIT:{crit} | ESC=Schliessen")
+        self.status_label.setText(
+            f"{len(hosts)} Hosts | OK:{ok} WARN:{warn} CRIT:{crit} | ESC=Schliessen"
+        )
 
     def check_jump(self):
         if not os.path.exists(JUMP_FILE):
             return
-        
+
         try:
-            with open(JUMP_FILE, 'r') as f:
+            with open(JUMP_FILE, "r") as f:
                 idx = int(f.read().strip())
             os.remove(JUMP_FILE)
             self.jump_to_host(idx)
-        except:
+        except Exception:
             pass
 
     def jump_to_host(self, idx):
         if idx not in self.host_labels:
             return
-        
+
         # Altes Highlight entfernen
-        if self.highlighted_idx is not None and self.highlighted_idx in self.host_labels:
+        if (
+            self.highlighted_idx is not None
+            and self.highlighted_idx in self.host_labels
+        ):
             old_label = self.host_labels[self.highlighted_idx]
             old_color = old_label.property("base_color")
-            old_label.setStyleSheet(f"color: {old_color}; font-size: 12px; font-family: monospace;")
-        
+            old_label.setStyleSheet(
+                f"color: {old_color}; font-size: 12px; font-family: monospace;"
+            )
+
         # Neues Highlight
         label = self.host_labels[idx]
-        label.setStyleSheet("color: #fff; font-size: 12px; font-family: monospace; background: #0078d4; padding: 2px;")
+        label.setStyleSheet(
+            "color: #fff; font-size: 12px; font-family: monospace; background: #0078d4; padding: 2px;"
+        )
         self.highlighted_idx = idx
-        
+
         # Zum Label scrollen
         self.scroll.ensureWidgetVisible(label, 50, 50)
-        
+
         # Highlight nach 2 Sek entfernen
         QTimer.singleShot(2000, lambda: self.remove_highlight(idx))
 
@@ -246,18 +267,20 @@ class HostListWindow(QWidget):
         if idx in self.host_labels and self.highlighted_idx == idx:
             label = self.host_labels[idx]
             color = label.property("base_color")
-            label.setStyleSheet(f"color: {color}; font-size: 12px; font-family: monospace;")
+            label.setStyleSheet(
+                f"color: {color}; font-size: 12px; font-family: monospace;"
+            )
             self.highlighted_idx = None
 
     def load_current_theme(self):
         """Liest aktuelles Theme aus Datei."""
         if os.path.exists(THEME_FILE):
             try:
-                with open(THEME_FILE, 'r') as f:
+                with open(THEME_FILE, "r") as f:
                     theme = f.read().strip()
                     if theme in THEMES:
                         self.current_theme = theme
-            except:
+            except Exception:
                 pass
         self.update_theme_buttons()
 
@@ -265,9 +288,9 @@ class HostListWindow(QWidget):
         """Setzt neues Theme und schreibt es in Datei."""
         self.current_theme = theme
         try:
-            with open(THEME_FILE, 'w') as f:
+            with open(THEME_FILE, "w") as f:
                 f.write(theme)
-        except:
+        except Exception:
             pass
         self.update_theme_buttons()
 
@@ -302,7 +325,7 @@ class HostListWindow(QWidget):
 
 def main():
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')
+    app.setStyle("Fusion")
     window = HostListWindow()
     window.show()
     window.activateWindow()

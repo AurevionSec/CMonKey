@@ -20,42 +20,47 @@ Steuerung:
 - ESC (lange drücken): Beenden
 """
 
-import time
 import math
+import os
 import random
-import threading
-import struct
 import select
 import subprocess
 import sys
+import threading
+import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional, Tuple, List, Dict
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 from openrgb import OpenRGBClient
-from openrgb.utils import RGBColor, DeviceType
+from openrgb.utils import DeviceType, RGBColor
 
 try:
     import evdev
     from evdev import InputDevice, categorize, ecodes
+
     EVDEV_AVAILABLE = True
 except ImportError:
     EVDEV_AVAILABLE = False
 
 try:
     import psutil
+
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
 
 try:
     import requests
+
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
 
 try:
-    import sounddevice as sd
     import numpy as np
+    import sounddevice as sd  # noqa: F401 - imported for availability check
+
     AUDIO_AVAILABLE = True
 except ImportError:
     AUDIO_AVAILABLE = False
@@ -69,12 +74,13 @@ THEME_FILE = "/tmp/aurenet_theme.txt"
 # KONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class Config:
-    speed: float = 1.0          # Animation Geschwindigkeit (0.1 - 3.0)
-    brightness: float = 1.0      # Helligkeit (0.0 - 1.0)
-    effect: str = "checkmk"      # Aktiver Effekt - startet mit CheckMK!
-    theme: str = "default"       # Aktives Farbtheme
+    speed: float = 1.0  # Animation Geschwindigkeit (0.1 - 3.0)
+    brightness: float = 1.0  # Helligkeit (0.0 - 1.0)
+    effect: str = "checkmk"  # Aktiver Effekt - startet mit CheckMK!
+    theme: str = "default"  # Aktives Farbtheme
     base_color: Tuple[int, int, int] = (255, 0, 255)  # Basis-Farbe für manche Effekte
     reactive_color: Tuple[int, int, int] = (255, 255, 255)  # Reaktive Farbe
 
@@ -83,9 +89,11 @@ class Config:
 # FARBTHEMES
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class ColorTheme:
     """Definiert ein Farbschema für Animationen und Status."""
+
     name: str
     # Animations-Farben (Gradient mit 4-6 Farben)
     gradient: List[Tuple[int, int, int]]
@@ -102,7 +110,14 @@ class ColorTheme:
 THEMES: Dict[str, ColorTheme] = {
     "default": ColorTheme(
         name="Default",
-        gradient=[(255, 0, 128), (255, 100, 0), (255, 255, 0), (0, 255, 128), (0, 128, 255), (128, 0, 255)],
+        gradient=[
+            (255, 0, 128),
+            (255, 100, 0),
+            (255, 255, 0),
+            (0, 255, 128),
+            (0, 128, 255),
+            (128, 0, 255),
+        ],
         highlight=(255, 255, 255),
     ),
     "cyberpunk": ColorTheme(
@@ -115,7 +130,13 @@ THEMES: Dict[str, ColorTheme] = {
     ),
     "nord": ColorTheme(
         name="Nord",
-        gradient=[(94, 129, 172), (136, 192, 208), (163, 190, 140), (235, 203, 139), (191, 97, 106)],
+        gradient=[
+            (94, 129, 172),
+            (136, 192, 208),
+            (163, 190, 140),
+            (235, 203, 139),
+            (191, 97, 106),
+        ],
         highlight=(236, 239, 244),
         status_ok=(163, 190, 140),
         status_warn=(235, 203, 139),
@@ -124,7 +145,13 @@ THEMES: Dict[str, ColorTheme] = {
     ),
     "fire": ColorTheme(
         name="Fire",
-        gradient=[(255, 255, 200), (255, 200, 0), (255, 100, 0), (200, 50, 0), (100, 0, 0)],
+        gradient=[
+            (255, 255, 200),
+            (255, 200, 0),
+            (255, 100, 0),
+            (200, 50, 0),
+            (100, 0, 0),
+        ],
         highlight=(255, 255, 200),
         status_ok=(255, 200, 0),
         status_warn=(255, 100, 0),
@@ -132,7 +159,13 @@ THEMES: Dict[str, ColorTheme] = {
     ),
     "ocean": ColorTheme(
         name="Ocean",
-        gradient=[(0, 50, 100), (0, 100, 150), (0, 150, 200), (50, 200, 220), (150, 230, 255)],
+        gradient=[
+            (0, 50, 100),
+            (0, 100, 150),
+            (0, 150, 200),
+            (50, 200, 220),
+            (150, 230, 255),
+        ],
         highlight=(200, 255, 255),
         status_ok=(0, 200, 150),
         status_warn=(255, 200, 100),
@@ -148,7 +181,13 @@ THEMES: Dict[str, ColorTheme] = {
     ),
     "synthwave": ColorTheme(
         name="Synthwave",
-        gradient=[(255, 0, 128), (255, 0, 255), (128, 0, 255), (0, 0, 255), (0, 128, 255)],
+        gradient=[
+            (255, 0, 128),
+            (255, 0, 255),
+            (128, 0, 255),
+            (0, 0, 255),
+            (0, 128, 255),
+        ],
         highlight=(255, 100, 200),
         status_ok=(0, 255, 200),
         status_warn=(255, 200, 0),
@@ -225,6 +264,7 @@ class ColorProvider:
 # AUDIO ANALYZER
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class AudioAnalyzer:
     """Analysiert System-Audio für reaktive Effekte via parec."""
 
@@ -241,28 +281,29 @@ class AudioAnalyzer:
 
     def start(self):
         """Startet Audio-Capture via parec (PulseAudio/PipeWire)."""
-        import subprocess
         import shutil
+        import subprocess
 
         if not AUDIO_AVAILABLE:
             print("⚠️ numpy nicht verfügbar")
             return
 
-        if not shutil.which('parec'):
+        if not shutil.which("parec"):
             print("⚠️ parec nicht gefunden")
             return
 
         try:
             # Finde Monitor-Source
-            result = subprocess.run(['pactl', 'list', 'short', 'sources'],
-                                    capture_output=True, text=True)
+            result = subprocess.run(
+                ["pactl", "list", "short", "sources"], capture_output=True, text=True
+            )
             monitor = None
-            for line in result.stdout.strip().split('\n'):
-                if '.monitor' in line:
-                    parts = line.split('\t')
+            for line in result.stdout.strip().split("\n"):
+                if ".monitor" in line:
+                    parts = line.split("\t")
                     if len(parts) >= 2:
                         monitor = parts[1]
-                        if 'RUNNING' in line:
+                        if "RUNNING" in line:
                             break  # Bevorzuge aktive Monitore
 
             if not monitor:
@@ -273,9 +314,16 @@ class AudioAnalyzer:
 
             # Starte parec für Audio-Capture
             self.process = subprocess.Popen(
-                ['parec', '--rate=44100', '--channels=1', '--format=s16le', '-d', monitor],
+                [
+                    "parec",
+                    "--rate=44100",
+                    "--channels=1",
+                    "--format=s16le",
+                    "-d",
+                    monitor,
+                ],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
             )
             self.running = True
 
@@ -288,18 +336,23 @@ class AudioAnalyzer:
                             continue
 
                         # Konvertiere zu numpy array
-                        audio = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+                        audio = (
+                            np.frombuffer(data, dtype=np.int16).astype(np.float32)
+                            / 32768.0
+                        )
 
                         # FFT
                         fft = np.abs(np.fft.rfft(audio))
-                        freqs = np.fft.rfftfreq(len(audio), 1/44100)
+                        freqs = np.fft.rfftfreq(len(audio), 1 / 44100)
 
                         # 8 Frequenzbänder
                         band_edges = [20, 60, 150, 400, 1000, 2500, 6000, 12000, 20000]
                         bands = []
 
                         for i in range(8):
-                            mask = (freqs >= band_edges[i]) & (freqs < band_edges[i+1])
+                            mask = (freqs >= band_edges[i]) & (
+                                freqs < band_edges[i + 1]
+                            )
                             if np.any(mask):
                                 power = np.mean(fft[mask])
                                 bands.append(min(1.0, power / 300))
@@ -342,32 +395,39 @@ class AudioAnalyzer:
 # CHECKMK MONITOR
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class CheckMKMonitor:
     """Holt Host-Status von CheckMK API."""
 
-    def __init__(self, url: str = "http://192.168.10.66:5000/cmk",
-                 user: str = "keyboard",
-                 secret: str = "GGLXRKQAUDVKCDGDNWGT"):
-        self.base_url = url
-        self.user = user
-        self.secret = secret
-        self.hosts = []  # Liste von {'name': str, 'state': int}
-        self.last_update = 0
-        self.update_interval = 30  # Sekunden
-        self.running = False
-        self.thread = None
+    def __init__(
+        self,
+        url: Optional[str] = None,
+        user: Optional[str] = None,
+        secret: Optional[str] = None,
+    ):
+        # Credentials aus Umgebungsvariablen oder Parameter
+        self.base_url: str = url or os.environ.get(
+            "CHECKMK_URL", "http://192.168.10.66:5000/cmk"
+        )
+        self.user: str = user or os.environ.get("CHECKMK_USER", "keyboard")
+        self.secret: str = secret or os.environ.get("CHECKMK_SECRET", "")
+        self.hosts: List[Dict[str, Any]] = []
+        self.last_update: float = 0
+        self.update_interval: int = 30  # Sekunden
+        self.running: bool = False
+        self.thread: Optional[threading.Thread] = None
         # Vorheriger Status für Animation-Trigger
-        self.previous_states = {}  # {hostname: state}
+        self.previous_states: Dict[str, int] = {}
         # Animationen (hostname -> {'start': timestamp, 'prev_state': int, 'priority': int})
-        self.supernovas = {}   # OK/WARN → CRIT
-        self.phoenixes = {}    # CRIT/WARN → OK (Recovery)
-        self.warnings = {}     # OK → WARN
-        self.blackholes = {}   # Host verschwindet (mit key_index für Position)
-        self.spawns = {}       # Neuer Host erscheint
-        self.known_hosts = set()  # Alle bekannten Hostnamen
+        self.supernovas: Dict[str, Dict[str, Any]] = {}  # OK/WARN → CRIT
+        self.phoenixes: Dict[str, Dict[str, Any]] = {}  # CRIT/WARN → OK (Recovery)
+        self.warnings: Dict[str, Dict[str, Any]] = {}  # OK → WARN
+        self.blackholes: Dict[str, Dict[str, Any]] = {}  # Host verschwindet
+        self.spawns: Dict[str, Dict[str, Any]] = {}  # Neuer Host erscheint
+        self.known_hosts: Set[str] = set()
         # Celebration: Alle Hosts OK!
-        self.celebration = None  # {'start': timestamp} wenn aktiv
-        self.had_problems = False  # Gab es vorher Probleme?
+        self.celebration: Optional[Dict[str, float]] = None
+        self.had_problems: bool = False
 
     def start(self):
         """Startet den Monitoring-Thread."""
@@ -387,79 +447,81 @@ class CheckMKMonitor:
     def _update_loop(self):
         """Aktualisiert Hosts periodisch."""
         import os
+
         last_fetch = 0
         while self.running:
             try:
                 # Check für Test-Trigger-Dateien (jede Sekunde)
-                if os.path.exists('/tmp/trigger_supernova'):
-                    os.remove('/tmp/trigger_supernova')
+                if os.path.exists("/tmp/trigger_supernova"):
+                    os.remove("/tmp/trigger_supernova")
                     if self.hosts:
-                        test_host = self.hosts[0]['name']
+                        test_host = self.hosts[0]["name"]
                         self.supernovas[test_host] = {
-                            'start': time.time(),
-                            'prev_state': 0,
-                            'priority': 0
+                            "start": time.time(),
+                            "prev_state": 0,
+                            "priority": 0,
                         }
                         print(f"💥 TEST-SUPERNOVA: {test_host}")
 
-                if os.path.exists('/tmp/trigger_phoenix'):
-                    os.remove('/tmp/trigger_phoenix')
+                if os.path.exists("/tmp/trigger_phoenix"):
+                    os.remove("/tmp/trigger_phoenix")
                     if self.hosts:
-                        test_host = self.hosts[0]['name']
+                        test_host = self.hosts[0]["name"]
                         self.phoenixes[test_host] = {
-                            'start': time.time(),
-                            'prev_state': 2,  # War CRIT
-                            'priority': 0
+                            "start": time.time(),
+                            "prev_state": 2,  # War CRIT
+                            "priority": 0,
                         }
                         print(f"🔥 TEST-PHOENIX: {test_host}")
 
-                if os.path.exists('/tmp/trigger_warning'):
-                    os.remove('/tmp/trigger_warning')
+                if os.path.exists("/tmp/trigger_warning"):
+                    os.remove("/tmp/trigger_warning")
                     if self.hosts:
-                        test_host = self.hosts[0]['name']
-                        self.warnings[test_host] = {
-                            'start': time.time(),
-                            'priority': 0
-                        }
+                        test_host = self.hosts[0]["name"]
+                        self.warnings[test_host] = {"start": time.time(), "priority": 0}
                         print(f"⚠️ TEST-WARNING: {test_host}")
 
-                if os.path.exists('/tmp/trigger_blackhole'):
-                    os.remove('/tmp/trigger_blackhole')
+                if os.path.exists("/tmp/trigger_blackhole"):
+                    os.remove("/tmp/trigger_blackhole")
                     if self.hosts:
-                        test_host = self.hosts[0]['name']
+                        test_host = self.hosts[0]["name"]
                         self.blackholes[test_host] = {
-                            'start': time.time(),
-                            'key_index': 0,  # Erste Taste
-                            'priority': 0
+                            "start": time.time(),
+                            "key_index": 0,  # Erste Taste
+                            "priority": 0,
                         }
                         print(f"🕳️ TEST-BLACKHOLE: {test_host}")
 
-                if os.path.exists('/tmp/trigger_spawn'):
-                    os.remove('/tmp/trigger_spawn')
+                if os.path.exists("/tmp/trigger_spawn"):
+                    os.remove("/tmp/trigger_spawn")
                     if self.hosts:
-                        test_host = self.hosts[0]['name']
+                        test_host = self.hosts[0]["name"]
                         self.spawns[test_host] = {
-                            'start': time.time(),
-                            'key_index': 0,  # Erste Taste
-                            'priority': 0
+                            "start": time.time(),
+                            "key_index": 0,  # Erste Taste
+                            "priority": 0,
                         }
                         print(f"✨ TEST-SPAWN: {test_host}")
 
-                if os.path.exists('/tmp/trigger_celebration'):
-                    os.remove('/tmp/trigger_celebration')
-                    self.celebration = {'start': time.time()}
+                if os.path.exists("/tmp/trigger_celebration"):
+                    os.remove("/tmp/trigger_celebration")
+                    self.celebration = {"start": time.time()}
                     print("🎉 TEST-CELEBRATION: Party time!")
 
-                if os.path.exists('/tmp/trigger_hostlist'):
-                    os.remove('/tmp/trigger_hostlist')
+                if os.path.exists("/tmp/trigger_hostlist"):
+                    os.remove("/tmp/trigger_hostlist")
                     self._print_hostlist()
 
-                if os.path.exists('/tmp/trigger_hostgui'):
-                    os.remove('/tmp/trigger_hostgui')
-                    subprocess.Popen([
-                        sys.executable,
-                        os.path.join(os.path.dirname(__file__), 'hostlist_gui.py')
-                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if os.path.exists("/tmp/trigger_hostgui"):
+                    os.remove("/tmp/trigger_hostgui")
+                    subprocess.Popen(
+                        [
+                            sys.executable,
+                            os.path.join(os.path.dirname(__file__), "hostlist_gui.py"),
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
 
                 # API nur alle 30 Sekunden abfragen
                 if time.time() - last_fetch >= self.update_interval:
@@ -476,20 +538,22 @@ class CheckMKMonitor:
         url = f"{self.base_url}/check_mk/api/1.0/domain-types/host/collections/all"
         headers = {
             "Accept": "application/json",
-            "Authorization": f"Bearer {self.user} {self.secret}"
+            "Authorization": f"Bearer {self.user} {self.secret}",
         }
 
-        response = requests.get(url, headers=headers, params={"columns": "state"}, timeout=10)
+        response = requests.get(
+            url, headers=headers, params={"columns": "state"}, timeout=10
+        )
         response.raise_for_status()
 
         data = response.json()
         now = time.time()
 
         new_hosts = []
-        for h in data.get('value', []):
-            name = h.get('id', '')
-            state = h.get('extensions', {}).get('state', 0)
-            new_hosts.append({'name': name, 'state': state})
+        for h in data.get("value", []):
+            name = h.get("id", "")
+            state = h.get("extensions", {}).get("state", 0)
+            new_hosts.append({"name": name, "state": state})
 
             prev_state = self.previous_states.get(name, 0)
             priority = self._get_host_priority(name)
@@ -497,27 +561,24 @@ class CheckMKMonitor:
             # SUPERNOVA: Host geht auf CRITICAL (state 2)
             if state == 2 and prev_state != 2:
                 self.supernovas[name] = {
-                    'start': now,
-                    'prev_state': prev_state,
-                    'priority': priority
+                    "start": now,
+                    "prev_state": prev_state,
+                    "priority": priority,
                 }
                 print(f"💥 SUPERNOVA: {name} geht CRITICAL!")
 
             # PHOENIX: Host erholt sich zu OK (state 0)
             elif state == 0 and prev_state > 0:
                 self.phoenixes[name] = {
-                    'start': now,
-                    'prev_state': prev_state,
-                    'priority': priority
+                    "start": now,
+                    "prev_state": prev_state,
+                    "priority": priority,
                 }
                 print(f"🔥 PHOENIX: {name} ist wieder OK!")
 
             # WARNING: Host geht auf WARN (state 1) von OK
             elif state == 1 and prev_state == 0:
-                self.warnings[name] = {
-                    'start': now,
-                    'priority': priority
-                }
+                self.warnings[name] = {"start": now, "priority": priority}
                 print(f"⚠️ WARNING: {name} hat Probleme!")
 
             # Update previous state
@@ -525,7 +586,7 @@ class CheckMKMonitor:
 
         # Sortieren nach Priorität (wichtige zuerst)
         new_hosts = self._sort_by_priority(new_hosts)
-        current_names = {h['name'] for h in new_hosts}
+        current_names = {h["name"] for h in new_hosts}
 
         # BLACKHOLE: Host ist verschwunden
         if self.known_hosts:  # Nur wenn wir schon Hosts kennen
@@ -534,14 +595,14 @@ class CheckMKMonitor:
                 # Finde alte Position in der sortierten Liste
                 old_index = 0
                 for i, h in enumerate(self.hosts):
-                    if h['name'] == name:
+                    if h["name"] == name:
                         old_index = i
                         break
                 priority = self._get_host_priority(name)
                 self.blackholes[name] = {
-                    'start': now,
-                    'key_index': old_index,
-                    'priority': priority
+                    "start": now,
+                    "key_index": old_index,
+                    "priority": priority,
                 }
                 print(f"🕳️ BLACKHOLE: {name} ist verschwunden!")
                 # Aus previous_states entfernen
@@ -554,14 +615,14 @@ class CheckMKMonitor:
                 # Finde neue Position in der sortierten Liste
                 new_index = 0
                 for i, h in enumerate(new_hosts):
-                    if h['name'] == name:
+                    if h["name"] == name:
                         new_index = i
                         break
                 priority = self._get_host_priority(name)
                 self.spawns[name] = {
-                    'start': now,
-                    'key_index': new_index,
-                    'priority': priority
+                    "start": now,
+                    "key_index": new_index,
+                    "priority": priority,
                 }
                 print(f"✨ SPAWN: {name} ist neu erschienen!")
 
@@ -569,66 +630,68 @@ class CheckMKMonitor:
         self.known_hosts = current_names
 
         # Alte Animationen aufräumen
-        self.supernovas = {k: v for k, v in self.supernovas.items()
-                          if now - v['start'] < 14}
-        self.phoenixes = {k: v for k, v in self.phoenixes.items()
-                         if now - v['start'] < 6}
-        self.warnings = {k: v for k, v in self.warnings.items()
-                        if now - v['start'] < 4}
-        self.blackholes = {k: v for k, v in self.blackholes.items()
-                          if now - v['start'] < 5}
-        self.spawns = {k: v for k, v in self.spawns.items()
-                      if now - v['start'] < 4}
+        self.supernovas = {
+            k: v for k, v in self.supernovas.items() if now - v["start"] < 14
+        }
+        self.phoenixes = {
+            k: v for k, v in self.phoenixes.items() if now - v["start"] < 6
+        }
+        self.warnings = {k: v for k, v in self.warnings.items() if now - v["start"] < 4}
+        self.blackholes = {
+            k: v for k, v in self.blackholes.items() if now - v["start"] < 5
+        }
+        self.spawns = {k: v for k, v in self.spawns.items() if now - v["start"] < 4}
 
         self.hosts = new_hosts
         self.last_update = now
 
         # CELEBRATION: Alle Hosts OK nach vorherigen Problemen?
         if new_hosts:
-            all_ok = all(h['state'] == 0 for h in new_hosts)
-            has_problems = any(h['state'] > 0 for h in new_hosts)
+            all_ok = all(h["state"] == 0 for h in new_hosts)
+            has_problems = any(h["state"] > 0 for h in new_hosts)
 
             if has_problems:
                 self.had_problems = True
 
             # Celebration starten wenn: alle OK UND es gab vorher Probleme UND keine Celebration läuft
             if all_ok and self.had_problems and self.celebration is None:
-                self.celebration = {'start': now}
+                self.celebration = {"start": now}
                 self.had_problems = False
                 print("🎉 CELEBRATION: Alle Hosts sind OK!")
 
             # Celebration aufräumen (nach 8 Sekunden)
-            if self.celebration and now - self.celebration['start'] > 8:
+            if self.celebration and now - self.celebration["start"] > 8:
                 self.celebration = None
 
         # Hosts als JSON exportieren für GUI
         try:
             import json
-            with open('/tmp/checkmk_hosts.json', 'w') as f:
+
+            with open("/tmp/checkmk_hosts.json", "w") as f:
                 json.dump(new_hosts, f)
-        except:
+        except Exception:
             pass
 
     def _get_host_priority(self, name: str) -> int:
         """Gibt Priorität zurück (0=wichtigste, höher=unwichtiger)."""
         name_lower = name.lower()
-        if 'server' in name_lower or 'srv' in name_lower:
+        if "server" in name_lower or "srv" in name_lower:
             return 0
-        if 'router' in name_lower or 'switch' in name_lower or 'gateway' in name_lower:
+        if "router" in name_lower or "switch" in name_lower or "gateway" in name_lower:
             return 1
-        if 'nas' in name_lower or 'storage' in name_lower:
+        if "nas" in name_lower or "storage" in name_lower:
             return 2
-        if 'proxmox' in name_lower or 'esxi' in name_lower or 'vm' in name_lower:
+        if "proxmox" in name_lower or "esxi" in name_lower or "vm" in name_lower:
             return 3
-        if 'pi' in name_lower or 'raspberry' in name_lower:
+        if "pi" in name_lower or "raspberry" in name_lower:
             return 4
-        if 'pc' in name_lower or 'desktop' in name_lower or 'workstation' in name_lower:
+        if "pc" in name_lower or "desktop" in name_lower or "workstation" in name_lower:
             return 5
-        if 'laptop' in name_lower or 'notebook' in name_lower:
+        if "laptop" in name_lower or "notebook" in name_lower:
             return 6
-        if 'phone' in name_lower or 'iphone' in name_lower or 'android' in name_lower:
+        if "phone" in name_lower or "iphone" in name_lower or "android" in name_lower:
             return 8
-        if 'ipad' in name_lower or 'tablet' in name_lower:
+        if "ipad" in name_lower or "tablet" in name_lower:
             return 9
         return 7
 
@@ -637,43 +700,68 @@ class CheckMKMonitor:
         name_lower = name.lower()
 
         # Server/Infrastruktur = Blau
-        if 'server' in name_lower or 'srv' in name_lower or 'proxmox' in name_lower or 'esxi' in name_lower:
+        if (
+            "server" in name_lower
+            or "srv" in name_lower
+            or "proxmox" in name_lower
+            or "esxi" in name_lower
+        ):
             return (30, 100, 255)
 
         # Netzwerk = Cyan
-        if 'router' in name_lower or 'switch' in name_lower or 'gateway' in name_lower or 'ap' in name_lower:
+        if (
+            "router" in name_lower
+            or "switch" in name_lower
+            or "gateway" in name_lower
+            or "ap" in name_lower
+        ):
             return (0, 200, 200)
 
         # Storage = Lila
-        if 'nas' in name_lower or 'storage' in name_lower or 'backup' in name_lower:
+        if "nas" in name_lower or "storage" in name_lower or "backup" in name_lower:
             return (150, 50, 255)
 
         # Raspberry/IoT = Pink
-        if 'pi' in name_lower or 'raspberry' in name_lower or 'esp' in name_lower or 'tapo' in name_lower:
+        if (
+            "pi" in name_lower
+            or "raspberry" in name_lower
+            or "esp" in name_lower
+            or "tapo" in name_lower
+        ):
             return (255, 50, 150)
 
         # PCs/Workstations = Grün
-        if 'pc' in name_lower or 'desktop' in name_lower or 'workstation' in name_lower or 'mega' in name_lower:
+        if (
+            "pc" in name_lower
+            or "desktop" in name_lower
+            or "workstation" in name_lower
+            or "mega" in name_lower
+        ):
             return (50, 255, 100)
 
         # Laptops = Türkis
-        if 'laptop' in name_lower or 'notebook' in name_lower:
+        if "laptop" in name_lower or "notebook" in name_lower:
             return (50, 200, 180)
 
         # Mobile = Orange
-        if 'phone' in name_lower or 'iphone' in name_lower or 'android' in name_lower or 'pixel' in name_lower:
+        if (
+            "phone" in name_lower
+            or "iphone" in name_lower
+            or "android" in name_lower
+            or "pixel" in name_lower
+        ):
             return (255, 150, 30)
 
         # Tablets = Gelb-Grün
-        if 'ipad' in name_lower or 'tablet' in name_lower or 'pad' in name_lower:
+        if "ipad" in name_lower or "tablet" in name_lower or "pad" in name_lower:
             return (180, 255, 50)
 
         # Kameras/Security = Rot-Orange
-        if 'cam' in name_lower or 'ring' in name_lower or 'security' in name_lower:
+        if "cam" in name_lower or "ring" in name_lower or "security" in name_lower:
             return (255, 80, 50)
 
         # Smart Home = Warmweiß
-        if 'home' in name_lower or 'assistant' in name_lower or 'alexa' in name_lower:
+        if "home" in name_lower or "assistant" in name_lower or "alexa" in name_lower:
             return (255, 200, 150)
 
         # Default = Weiß-Grün
@@ -717,42 +805,47 @@ class CheckMKMonitor:
                 if host_idx >= len(self.hosts):
                     break
                 h = self.hosts[host_idx]
-                icon = state_icons.get(h['state'], "⚪")
-                status = state_names.get(h['state'], "???")
-                row_hosts.append(f"  {host_idx+1:3}. {icon} {h['name'][:30]:<30} [{status}]")
+                icon = state_icons.get(h["state"], "⚪")
+                status = state_names.get(h["state"], "???")
+                row_hosts.append(
+                    f"  {host_idx + 1:3}. {icon} {h['name'][:30]:<30} [{status}]"
+                )
                 host_idx += 1
 
             for line in row_hosts:
                 print(line)
 
         print("\n" + "═" * 70)
-        print(f"📊 Gesamt: {len(self.hosts)} Hosts | 🟢 OK: {sum(1 for h in self.hosts if h['state']==0)} | "
-              f"🟡 WARN: {sum(1 for h in self.hosts if h['state']==1)} | "
-              f"🔴 CRIT: {sum(1 for h in self.hosts if h['state']==2)}")
+        print(
+            f"📊 Gesamt: {len(self.hosts)} Hosts | 🟢 OK: {sum(1 for h in self.hosts if h['state'] == 0)} | "
+            f"🟡 WARN: {sum(1 for h in self.hosts if h['state'] == 1)} | "
+            f"🔴 CRIT: {sum(1 for h in self.hosts if h['state'] == 2)}"
+        )
         print("═" * 70 + "\n")
 
     def _sort_by_priority(self, hosts: List[Dict]) -> List[Dict]:
         """Sortiert Hosts nach Wichtigkeit."""
+
         def priority(h):
-            name = h['name'].lower()
+            name = h["name"].lower()
             # Wichtige Keywords = niedrigere Zahl = höhere Priorität
-            if 'server' in name or 'srv' in name:
+            if "server" in name or "srv" in name:
                 return 0
-            if 'router' in name or 'switch' in name or 'gateway' in name:
+            if "router" in name or "switch" in name or "gateway" in name:
                 return 1
-            if 'nas' in name or 'storage' in name:
+            if "nas" in name or "storage" in name:
                 return 2
-            if 'proxmox' in name or 'esxi' in name or 'vm' in name:
+            if "proxmox" in name or "esxi" in name or "vm" in name:
                 return 3
-            if 'pi' in name or 'raspberry' in name:
+            if "pi" in name or "raspberry" in name:
                 return 4
-            if 'pc' in name or 'desktop' in name or 'workstation' in name:
+            if "pc" in name or "desktop" in name or "workstation" in name:
                 return 5
-            if 'laptop' in name or 'notebook' in name:
+            if "laptop" in name or "notebook" in name:
                 return 6
-            if 'phone' in name or 'iphone' in name or 'android' in name:
+            if "phone" in name or "iphone" in name or "android" in name:
                 return 8
-            if 'ipad' in name or 'tablet' in name:
+            if "ipad" in name or "tablet" in name:
                 return 9
             # Alles andere
             return 7
@@ -768,48 +861,46 @@ class CheckMKMonitor:
 # Die Positionen sind relativ auf einem Grid
 VULCAN_LAYOUT = {
     # Erste Reihe (ESC, F1-F12, etc.)
-    0: (0, 0),     # ESC
-    9: (2, 0),     # F1
-    15: (3, 0),    # F2
-    20: (4, 0),    # F3
-    24: (5, 0),    # F4
+    0: (0, 0),  # ESC
+    9: (2, 0),  # F1
+    15: (3, 0),  # F2
+    20: (4, 0),  # F3
+    24: (5, 0),  # F4
     35: (6.5, 0),  # F5
     40: (7.5, 0),  # F6
     45: (8.5, 0),  # F7
     49: (9.5, 0),  # F8
-    54: (11, 0),   # F9
-    59: (12, 0),   # F10
-    64: (13, 0),   # F11
-    68: (14, 0),   # F12
-    73: (15.5, 0), # Print
-    78: (16.5, 0), # Scroll
-    82: (17.5, 0), # Pause
-
+    54: (11, 0),  # F9
+    59: (12, 0),  # F10
+    64: (13, 0),  # F11
+    68: (14, 0),  # F12
+    73: (15.5, 0),  # Print
+    78: (16.5, 0),  # Scroll
+    82: (17.5, 0),  # Pause
     # Zweite Reihe (Zahlen)
-    1: (0, 1),     # `
-    6: (1, 1),     # 1
-    11: (2, 1),    # 2
-    16: (3, 1),    # 3
-    21: (4, 1),    # 4
-    25: (5, 1),    # 5
-    30: (6, 1),    # 6
-    36: (7, 1),    # 7
-    41: (8, 1),    # 8
-    46: (9, 1),    # 9
-    50: (10, 1),   # 0
-    55: (11, 1),   # -
-    60: (12, 1),   # =
-    65: (14, 1),   # Backspace
-    74: (15.5, 1), # Ins
-    79: (16.5, 1), # Home
-    83: (17.5, 1), # PgUp
-    85: (19, 1),   # NumLock
-    89: (20, 1),   # Num /
-    93: (21, 1),   # Num *
-    96: (22, 1),   # Num -
-
+    1: (0, 1),  # `
+    6: (1, 1),  # 1
+    11: (2, 1),  # 2
+    16: (3, 1),  # 3
+    21: (4, 1),  # 4
+    25: (5, 1),  # 5
+    30: (6, 1),  # 6
+    36: (7, 1),  # 7
+    41: (8, 1),  # 8
+    46: (9, 1),  # 9
+    50: (10, 1),  # 0
+    55: (11, 1),  # -
+    60: (12, 1),  # =
+    65: (14, 1),  # Backspace
+    74: (15.5, 1),  # Ins
+    79: (16.5, 1),  # Home
+    83: (17.5, 1),  # PgUp
+    85: (19, 1),  # NumLock
+    89: (20, 1),  # Num /
+    93: (21, 1),  # Num *
+    96: (22, 1),  # Num -
     # Dritte Reihe (QWERTY)
-    2: (0, 2),     # Tab
+    2: (0, 2),  # Tab
     10: (1.5, 2),  # Q
     17: (2.5, 2),  # W
     22: (3.5, 2),  # E
@@ -819,70 +910,67 @@ VULCAN_LAYOUT = {
     42: (7.5, 2),  # U
     47: (8.5, 2),  # I
     51: (9.5, 2),  # O
-    56: (10.5, 2), # P
-    61: (11.5, 2), # [
-    66: (12.5, 2), # ]
-    75: (15.5, 2), # Del
-    80: (16.5, 2), # End
-    84: (17.5, 2), # PgDn
-    86: (19, 2),   # Num 7
-    90: (20, 2),   # Num 8
-    94: (21, 2),   # Num 9
-
+    56: (10.5, 2),  # P
+    61: (11.5, 2),  # [
+    66: (12.5, 2),  # ]
+    75: (15.5, 2),  # Del
+    80: (16.5, 2),  # End
+    84: (17.5, 2),  # PgDn
+    86: (19, 2),  # Num 7
+    90: (20, 2),  # Num 8
+    94: (21, 2),  # Num 9
     # Vierte Reihe (ASDF)
-    3: (0, 3),     # Caps
-    12: (1.75, 3), # A
-    18: (2.75, 3), # S
-    23: (3.75, 3), # D
-    27: (4.75, 3), # F
-    32: (5.75, 3), # G
-    38: (6.75, 3), # H
-    43: (7.75, 3), # J
-    48: (8.75, 3), # K
-    52: (9.75, 3), # L
-    57: (10.75, 3),# ;
-    62: (11.75, 3),# '
-    67: (12.75, 3),# #
-    69: (14, 3),   # Enter
-    87: (19, 3),   # Num 4
-    91: (20, 3),   # Num 5
-    95: (21, 3),   # Num 6
-    97: (22.5, 3), # Num +
-
+    3: (0, 3),  # Caps
+    12: (1.75, 3),  # A
+    18: (2.75, 3),  # S
+    23: (3.75, 3),  # D
+    27: (4.75, 3),  # F
+    32: (5.75, 3),  # G
+    38: (6.75, 3),  # H
+    43: (7.75, 3),  # J
+    48: (8.75, 3),  # K
+    52: (9.75, 3),  # L
+    57: (10.75, 3),  # ;
+    62: (11.75, 3),  # '
+    67: (12.75, 3),  # #
+    69: (14, 3),  # Enter
+    87: (19, 3),  # Num 4
+    91: (20, 3),  # Num 5
+    95: (21, 3),  # Num 6
+    97: (22.5, 3),  # Num +
     # Fünfte Reihe (ZXCV)
-    4: (0, 4),     # L Shift
+    4: (0, 4),  # L Shift
     7: (1.25, 4),  # ISO \
-    13: (2.25, 4), # Z
-    19: (3.25, 4), # X
-    28: (4.25, 4), # C
-    33: (5.25, 4), # V
-    39: (6.25, 4), # B
-    44: (7.25, 4), # N
-    53: (8.25, 4), # M
-    58: (9.25, 4), # ,
-    63: (10.25, 4),# .
-    70: (11.25, 4),# /
-    71: (13.5, 4), # R Shift
-    76: (16.5, 4), # Up
-    88: (19, 4),   # Num 1
-    92: (20, 4),   # Num 2
-    98: (21, 4),   # Num 3
-
+    13: (2.25, 4),  # Z
+    19: (3.25, 4),  # X
+    28: (4.25, 4),  # C
+    33: (5.25, 4),  # V
+    39: (6.25, 4),  # B
+    44: (7.25, 4),  # N
+    53: (8.25, 4),  # M
+    58: (9.25, 4),  # ,
+    63: (10.25, 4),  # .
+    70: (11.25, 4),  # /
+    71: (13.5, 4),  # R Shift
+    76: (16.5, 4),  # Up
+    88: (19, 4),  # Num 1
+    92: (20, 4),  # Num 2
+    98: (21, 4),  # Num 3
     # Sechste Reihe (Space etc.)
-    5: (0, 5),     # L Ctrl
-    8: (1.5, 5),   # L Win
-    14: (3, 5),    # L Alt
+    5: (0, 5),  # L Ctrl
+    8: (1.5, 5),  # L Win
+    14: (3, 5),  # L Alt
     34: (6.5, 5),  # Space
-    72: (10, 5),   # R Alt
-    77: (11.5, 5), # Fn
-    81: (13, 5),   # Menu
-    99: (14.5, 5), # R Ctrl
-    100: (15.5, 5),# Left
-    101: (16.5, 5),# Down
-    102: (17.5, 5),# Right
-    103: (19.5, 5),# Num 0
+    72: (10, 5),  # R Alt
+    77: (11.5, 5),  # Fn
+    81: (13, 5),  # Menu
+    99: (14.5, 5),  # R Ctrl
+    100: (15.5, 5),  # Left
+    101: (16.5, 5),  # Down
+    102: (17.5, 5),  # Right
+    103: (19.5, 5),  # Num 0
     104: (21, 5),  # Num .
-    105: (22.5, 5),# Num Enter
+    105: (22.5, 5),  # Num Enter
 }
 
 
@@ -890,12 +978,13 @@ VULCAN_LAYOUT = {
 # FARBHELFER
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
     """Konvertiert HSV zu RGB."""
     h = h % 1.0
     if s == 0.0:
-        r = g = b = int(v * 255)
-        return (r, g, b)
+        val = int(v * 255)
+        return (val, val, val)
 
     i = int(h * 6.0)
     f = (h * 6.0) - i
@@ -904,24 +993,31 @@ def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
     t = v * (1.0 - s * (1.0 - f))
 
     i = i % 6
-    if i == 0: r, g, b = v, t, p
-    elif i == 1: r, g, b = q, v, p
-    elif i == 2: r, g, b = p, v, t
-    elif i == 3: r, g, b = p, q, v
-    elif i == 4: r, g, b = t, p, v
-    else: r, g, b = v, p, q
+    if i == 0:
+        r, g, b = v, t, p
+    elif i == 1:
+        r, g, b = q, v, p
+    elif i == 2:
+        r, g, b = p, v, t
+    elif i == 3:
+        r, g, b = p, q, v
+    elif i == 4:
+        r, g, b = t, p, v
+    else:
+        r, g, b = v, p, q
 
     return (int(r * 255), int(g * 255), int(b * 255))
 
 
-def blend_colors(c1: Tuple[int, int, int], c2: Tuple[int, int, int],
-                 factor: float) -> Tuple[int, int, int]:
+def blend_colors(
+    c1: Tuple[int, int, int], c2: Tuple[int, int, int], factor: float
+) -> Tuple[int, int, int]:
     """Mischt zwei Farben."""
     factor = max(0.0, min(1.0, factor))
     return (
         int(c1[0] * (1 - factor) + c2[0] * factor),
         int(c1[1] * (1 - factor) + c2[1] * factor),
-        int(c1[2] * (1 - factor) + c2[2] * factor)
+        int(c1[2] * (1 - factor) + c2[2] * factor),
     )
 
 
@@ -930,7 +1026,7 @@ def apply_brightness(color: Tuple[int, int, int], brightness: float) -> RGBColor
     return RGBColor(
         int(color[0] * brightness),
         int(color[1] * brightness),
-        int(color[2] * brightness)
+        int(color[2] * brightness),
     )
 
 
@@ -938,8 +1034,10 @@ def apply_brightness(color: Tuple[int, int, int], brightness: float) -> RGBColor
 # EFFEKTE
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class KeyPress:
     """Speichert einen Tastendruck für Ripple-Effekte."""
+
     def __init__(self, led_index: int, timestamp: float):
         self.led_index = led_index
         self.timestamp = timestamp
@@ -949,17 +1047,23 @@ class KeyPress:
 class EffectEngine:
     """Haupt-Engine für alle Lichteffekte."""
 
-    def __init__(self, keyboard, num_leds: int, config: Config,
-                 audio: AudioAnalyzer = None, checkmk: CheckMKMonitor = None):
+    def __init__(
+        self,
+        keyboard: Any,
+        num_leds: int,
+        config: Config,
+        audio: Optional["AudioAnalyzer"] = None,
+        checkmk: Optional[CheckMKMonitor] = None,
+    ):
         self.keyboard = keyboard
         self.num_leds = num_leds
         self.config = config
         self.audio = audio
         self.checkmk = checkmk
         self.start_time = time.time()
-        self.key_presses: deque = deque(maxlen=50)
+        self.key_presses: deque[KeyPress] = deque(maxlen=50)
         self.running = True
-        self.led_to_host = {}  # Mapping: LED-Index -> {'name': str, 'state': int}
+        self.led_to_host: Dict[int, Dict[str, Any]] = {}
 
         # ColorProvider für Theme-basierte Farben
         self.colors = ColorProvider(config.theme)
@@ -1003,10 +1107,11 @@ class EffectEngine:
     def check_theme_file(self):
         """Prüft Theme-Datei auf Änderungen (von GUI gesetzt)."""
         import os
+
         if not os.path.exists(THEME_FILE):
             return
         try:
-            with open(THEME_FILE, 'r') as f:
+            with open(THEME_FILE, "r") as f:
                 theme = f.read().strip()
             if theme and theme in THEMES and theme != self.config.theme:
                 self.set_theme(theme)
@@ -1039,8 +1144,10 @@ class EffectEngine:
         # Theme: Dunkle Basisfarbe vom Gradient-Start
         base = self.colors.get_gradient_at(0)
         base_dim = (base[0] // 10, base[1] // 10, base[2] // 10)
-        colors = [apply_brightness(base_dim, self.config.brightness)
-                  for _ in range(self.num_leds)]
+        colors = [
+            apply_brightness(base_dim, self.config.brightness)
+            for _ in range(self.num_leds)
+        ]
 
         # Alte Tastendrücke entfernen
         while self.key_presses and (now - self.key_presses[0].timestamp) > 2.0:
@@ -1057,7 +1164,7 @@ class EffectEngine:
 
             for i in range(self.num_leds):
                 pos = self.led_positions.get(i, (0, 0))
-                dist = math.sqrt((pos[0] - kp.pos[0])**2 + (pos[1] - kp.pos[1])**2)
+                dist = math.sqrt((pos[0] - kp.pos[0]) ** 2 + (pos[1] - kp.pos[1]) ** 2)
 
                 # Ring-Effekt
                 ring_width = 1.5
@@ -1114,7 +1221,7 @@ class EffectEngine:
             pos = self.led_positions.get(i, (0, 0))
 
             # Mehrere "Tropfen" pro Spalte
-            intensity = 0
+            intensity: float = 0.0
             for drop in range(3):
                 drop_speed = 1.5 + drop * 0.5
                 drop_offset = drop * 7
@@ -1130,9 +1237,11 @@ class EffectEngine:
                 intensity = min(1, intensity + 0.5)
 
             # Theme: Farbe mit Intensität skalieren
-            rgb = (int(primary[0] * intensity),
-                   int(primary[1] * intensity),
-                   int(primary[2] * intensity))
+            rgb = (
+                int(primary[0] * intensity),
+                int(primary[1] * intensity),
+                int(primary[2] * intensity),
+            )
             colors.append(apply_brightness(rgb, self.config.brightness))
 
         return colors
@@ -1146,12 +1255,14 @@ class EffectEngine:
 
         # Sinuswelle für sanftes Ein- und Ausatmen
         breath = (math.sin(elapsed * 2) + 1) / 2  # 0 bis 1
-        breath = breath ** 2  # Etwas mehr Zeit im dunklen Bereich
+        breath = breath**2  # Etwas mehr Zeit im dunklen Bereich
 
         # Theme: Durch Gradient atmen
         rgb = self.colors.get_gradient_color(breath * 0.5)  # Nur halber Gradient
-        colors = [apply_brightness(rgb, self.config.brightness * breath * 0.9 + 0.1)
-                  for _ in range(self.num_leds)]
+        colors = [
+            apply_brightness(rgb, self.config.brightness * breath * 0.9 + 0.1)
+            for _ in range(self.num_leds)
+        ]
 
         return colors
 
@@ -1204,11 +1315,7 @@ class EffectEngine:
             wave2 = math.sin(elapsed * 1.5 + pos[1] * 0.5 + 1) * 0.5 + 0.5
             wave3 = math.sin(elapsed * 2.5 + (pos[0] + pos[1]) * 0.2 + 2) * 0.5 + 0.5
 
-            rgb = (
-                int(255 * wave1),
-                int(255 * wave2),
-                int(255 * wave3)
-            )
+            rgb = (int(255 * wave1), int(255 * wave2), int(255 * wave3))
             colors.append(apply_brightness(rgb, self.config.brightness))
 
         return colors
@@ -1235,11 +1342,7 @@ class EffectEngine:
                 twinkle = 1.0
 
             # Leicht bläuliche Sterne
-            rgb = (
-                int(200 * twinkle + 55),
-                int(200 * twinkle + 55),
-                int(255 * twinkle)
-            )
+            rgb = (int(200 * twinkle + 55), int(200 * twinkle + 55), int(255 * twinkle))
             colors.append(apply_brightness(rgb, self.config.brightness * twinkle))
 
         return colors
@@ -1263,7 +1366,7 @@ class EffectEngine:
 
             for i in range(self.num_leds):
                 pos = self.led_positions.get(i, (0, 0))
-                dist = math.sqrt((pos[0] - kp.pos[0])**2 + (pos[1] - kp.pos[1])**2)
+                dist = math.sqrt((pos[0] - kp.pos[0]) ** 2 + (pos[1] - kp.pos[1]) ** 2)
 
                 # Expandierende Explosion
                 radius = age * 8
@@ -1273,7 +1376,7 @@ class EffectEngine:
                 if dist < radius + thickness:
                     intensity = max(0, 1 - abs(dist - radius) / thickness)
                     intensity *= max(0, 1 - age / 1.5)  # Fade out
-                    intensity = intensity ** 0.5  # Weicherer Falloff
+                    intensity = intensity**0.5  # Weicherer Falloff
 
                     if intensity > 0:
                         # Farbe mit Shift über Zeit
@@ -1281,9 +1384,18 @@ class EffectEngine:
                         rgb = hsv_to_rgb(local_hue, 1.0, intensity)
                         # Additive Blending
                         colors[i] = RGBColor(
-                            min(255, colors[i].red + int(rgb[0] * self.config.brightness)),
-                            min(255, colors[i].green + int(rgb[1] * self.config.brightness)),
-                            min(255, colors[i].blue + int(rgb[2] * self.config.brightness))
+                            min(
+                                255,
+                                colors[i].red + int(rgb[0] * self.config.brightness),
+                            ),
+                            min(
+                                255,
+                                colors[i].green + int(rgb[1] * self.config.brightness),
+                            ),
+                            min(
+                                255,
+                                colors[i].blue + int(rgb[2] * self.config.brightness),
+                            ),
                         )
 
         return colors
@@ -1294,8 +1406,10 @@ class EffectEngine:
     def effect_snake(self) -> List[RGBColor]:
         """Die letzten gedrückten Tasten bilden eine leuchtende Schlange."""
         now = time.time()
-        colors = [apply_brightness((10, 0, 20), self.config.brightness * 0.1)
-                  for _ in range(self.num_leds)]
+        colors = [
+            apply_brightness((10, 0, 20), self.config.brightness * 0.1)
+            for _ in range(self.num_leds)
+        ]
 
         # Behalte die letzten 20 Tastendrücke
         recent = list(self.key_presses)[-20:]
@@ -1318,13 +1432,12 @@ class EffectEngine:
             # Die gedrückte Taste und ihre Nachbarn leuchten
             for i in range(self.num_leds):
                 pos = self.led_positions.get(i, (0, 0))
-                dist = math.sqrt((pos[0] - kp.pos[0])**2 + (pos[1] - kp.pos[1])**2)
+                dist = math.sqrt((pos[0] - kp.pos[0]) ** 2 + (pos[1] - kp.pos[1]) ** 2)
 
                 if dist < 1.5:
                     glow = (1 - dist / 1.5) * intensity
                     blended = blend_colors(
-                        (colors[i].red, colors[i].green, colors[i].blue),
-                        rgb, glow
+                        (colors[i].red, colors[i].green, colors[i].blue), rgb, glow
                     )
                     colors[i] = apply_brightness(blended, self.config.brightness)
 
@@ -1338,7 +1451,7 @@ class EffectEngine:
         now = time.time()
 
         # Heat-Map initialisieren falls nicht vorhanden
-        if not hasattr(self, 'heat_values'):
+        if not hasattr(self, "heat_values"):
             self.heat_values = [0.0] * self.num_leds
 
         # Heat abkühlen
@@ -1351,9 +1464,13 @@ class EffectEngine:
             if age < 0.1:  # Nur ganz frische
                 for i in range(self.num_leds):
                     pos = self.led_positions.get(i, (0, 0))
-                    dist = math.sqrt((pos[0] - kp.pos[0])**2 + (pos[1] - kp.pos[1])**2)
+                    dist = math.sqrt(
+                        (pos[0] - kp.pos[0]) ** 2 + (pos[1] - kp.pos[1]) ** 2
+                    )
                     if dist < 2:
-                        self.heat_values[i] = min(1.0, self.heat_values[i] + 0.3 * (1 - dist/2))
+                        self.heat_values[i] = min(
+                            1.0, self.heat_values[i] + 0.3 * (1 - dist / 2)
+                        )
 
         colors = []
         for i in range(self.num_leds):
@@ -1394,7 +1511,7 @@ class EffectEngine:
 
             # Pulsierender Hintergrund
             pulse = (math.sin(elapsed * (2 + combo * 8)) + 1) / 2
-            wave = (math.sin(elapsed * 3 + pos[0] * 0.3) + 1) / 2
+            (math.sin(elapsed * 3 + pos[0] * 0.3) + 1) / 2
 
             # Farbe wird gesättigter und heller mit Combo
             hue = (elapsed * 0.2 + combo * 0.5) % 1.0
@@ -1416,13 +1533,15 @@ class EffectEngine:
                 intensity = (1 - age / 0.3) * (0.5 + combo * 0.5)
                 for i in range(self.num_leds):
                     pos = self.led_positions.get(i, (0, 0))
-                    dist = math.sqrt((pos[0] - kp.pos[0])**2 + (pos[1] - kp.pos[1])**2)
+                    dist = math.sqrt(
+                        (pos[0] - kp.pos[0]) ** 2 + (pos[1] - kp.pos[1]) ** 2
+                    )
                     if dist < 2:
                         glow = intensity * (1 - dist / 2)
                         colors[i] = RGBColor(
                             min(255, colors[i].red + int(255 * glow)),
                             min(255, colors[i].green + int(255 * glow)),
-                            min(255, colors[i].blue + int(200 * glow))
+                            min(255, colors[i].blue + int(200 * glow)),
                         )
 
         return colors
@@ -1453,7 +1572,7 @@ class EffectEngine:
 
             for i in range(self.num_leds):
                 pos = self.led_positions.get(i, (0, 0))
-                dist = math.sqrt((pos[0] - kp.pos[0])**2 + (pos[1] - kp.pos[1])**2)
+                dist = math.sqrt((pos[0] - kp.pos[0]) ** 2 + (pos[1] - kp.pos[1]) ** 2)
 
                 # Scharfer Ring mit Nachglühen
                 ring_dist = abs(dist - radius)
@@ -1468,9 +1587,18 @@ class EffectEngine:
                     if ring_intensity > 0:
                         rgb = hsv_to_rgb(hue, 1.0, ring_intensity)
                         colors[i] = RGBColor(
-                            min(255, colors[i].red + int(rgb[0] * self.config.brightness)),
-                            min(255, colors[i].green + int(rgb[1] * self.config.brightness)),
-                            min(255, colors[i].blue + int(rgb[2] * self.config.brightness))
+                            min(
+                                255,
+                                colors[i].red + int(rgb[0] * self.config.brightness),
+                            ),
+                            min(
+                                255,
+                                colors[i].green + int(rgb[1] * self.config.brightness),
+                            ),
+                            min(
+                                255,
+                                colors[i].blue + int(rgb[2] * self.config.brightness),
+                            ),
                         )
 
         return colors
@@ -1510,22 +1638,34 @@ class EffectEngine:
             # Hauptblitz zur Taste
             for i in range(self.num_leds):
                 pos = self.led_positions.get(i, (0, 0))
-                dist = math.sqrt((pos[0] - kp.pos[0])**2 + (pos[1] - kp.pos[1])**2)
+                dist = math.sqrt((pos[0] - kp.pos[0]) ** 2 + (pos[1] - kp.pos[1]) ** 2)
 
                 # Kern-Flash
                 if dist < 1:
                     colors[i] = RGBColor(
                         min(255, int(255 * intensity * self.config.brightness)),
                         min(255, int(255 * intensity * self.config.brightness)),
-                        min(255, int(255 * intensity * self.config.brightness))
+                        min(255, int(255 * intensity * self.config.brightness)),
                     )
                 # Elektrische Arme (zufällige Verzweigungen)
                 elif dist < 6 and random.random() < 0.4 * intensity:
                     arm_intensity = intensity * (1 - dist / 6) * random.random()
                     colors[i] = RGBColor(
-                        min(255, colors[i].red + int(150 * arm_intensity * self.config.brightness)),
-                        min(255, colors[i].green + int(150 * arm_intensity * self.config.brightness)),
-                        min(255, colors[i].blue + int(255 * arm_intensity * self.config.brightness))
+                        min(
+                            255,
+                            colors[i].red
+                            + int(150 * arm_intensity * self.config.brightness),
+                        ),
+                        min(
+                            255,
+                            colors[i].green
+                            + int(150 * arm_intensity * self.config.brightness),
+                        ),
+                        min(
+                            255,
+                            colors[i].blue
+                            + int(255 * arm_intensity * self.config.brightness),
+                        ),
                     )
 
             random.seed()  # Reset random
@@ -1552,7 +1692,7 @@ class EffectEngine:
             v1 = math.sin(pos[0] * 0.3 + elapsed * 2)
             v2 = math.sin(pos[1] * 0.4 + elapsed * 1.5)
             v3 = math.sin((pos[0] + pos[1]) * 0.2 + elapsed * 2.5)
-            v4 = math.sin(math.sqrt(pos[0]**2 + pos[1]**2) * 0.3 + elapsed * 1.8)
+            v4 = math.sin(math.sqrt(pos[0] ** 2 + pos[1] ** 2) * 0.3 + elapsed * 1.8)
 
             # Kombiniere und normalisiere
             plasma = (v1 + v2 + v3 + v4) / 4
@@ -1571,7 +1711,9 @@ class EffectEngine:
             for kp in self.key_presses:
                 age = now - kp.timestamp
                 if age < 0.8:
-                    dist = math.sqrt((pos[0] - kp.pos[0])**2 + (pos[1] - kp.pos[1])**2)
+                    dist = math.sqrt(
+                        (pos[0] - kp.pos[0]) ** 2 + (pos[1] - kp.pos[1]) ** 2
+                    )
                     if dist < 4:
                         boost = (1 - age / 0.8) * (1 - dist / 4)
                         rgb = blend_colors(rgb, (255, 255, 255), boost * 0.5)
@@ -1589,7 +1731,7 @@ class EffectEngine:
         if not self.audio or not self.audio.running:
             return self.effect_spectrum()
 
-        elapsed = self.get_elapsed()
+        self.get_elapsed()
         colors = []
 
         for i in range(self.num_leds):
@@ -1597,7 +1739,9 @@ class EffectEngine:
 
             # X-Position bestimmt Frequenzband (0-7)
             band_idx = min(7, int(pos[0] / 3))
-            band_value = self.audio.bands[band_idx] if band_idx < len(self.audio.bands) else 0
+            band_value = (
+                self.audio.bands[band_idx] if band_idx < len(self.audio.bands) else 0
+            )
 
             # Y-Position bestimmt Schwellwert (unten = niedrig, oben = hoch)
             threshold = 1 - (pos[1] / 6)
@@ -1621,7 +1765,7 @@ class EffectEngine:
         if not self.audio or not self.audio.running:
             return self.effect_breathing()
 
-        elapsed = self.get_elapsed()
+        self.get_elapsed()
         bass = self.audio.bass
         mid = self.audio.mid
         high = self.audio.high
@@ -1718,18 +1862,24 @@ class EffectEngine:
             if height_factor < 0.3:
                 base = blend_colors((20, 10, 60), (80, 30, 100), height_factor / 0.3)
             elif height_factor < 0.5:
-                base = blend_colors((80, 30, 100), (200, 80, 50), (height_factor - 0.3) / 0.2)
+                base = blend_colors(
+                    (80, 30, 100), (200, 80, 50), (height_factor - 0.3) / 0.2
+                )
             elif height_factor < 0.7:
-                base = blend_colors((200, 80, 50), (255, 150, 30), (height_factor - 0.5) / 0.2)
+                base = blend_colors(
+                    (200, 80, 50), (255, 150, 30), (height_factor - 0.5) / 0.2
+                )
             else:
-                base = blend_colors((255, 150, 30), (255, 200, 100), (height_factor - 0.7) / 0.3)
+                base = blend_colors(
+                    (255, 150, 30), (255, 200, 100), (height_factor - 0.7) / 0.3
+                )
 
             # Subtile Wellen-Variation
             variation = (wave + 1) / 2 * 0.2
             rgb = (
                 min(255, int(base[0] * (1 + variation))),
                 min(255, int(base[1] * (1 + variation * 0.5))),
-                min(255, int(base[2] * (1 - variation * 0.3)))
+                min(255, int(base[2] * (1 - variation * 0.3))),
             )
 
             colors.append(apply_brightness(rgb, self.config.brightness))
@@ -1784,31 +1934,56 @@ class EffectEngine:
 
         # LED-Indizes für Zahlenreihe: 1-9, 0
         number_leds = {
-            1: 6, 2: 11, 3: 16, 4: 21, 5: 25,
-            6: 30, 7: 36, 8: 41, 9: 46, 0: 50
+            1: 6,
+            2: 11,
+            3: 16,
+            4: 21,
+            5: 25,
+            6: 30,
+            7: 36,
+            8: 41,
+            9: 46,
+            0: 50,
         }
 
         # Stunden (Cyan)
         if hour_tens in number_leds:
-            colors[number_leds[hour_tens]] = apply_brightness((0, 200, 255), self.config.brightness)
+            colors[number_leds[hour_tens]] = apply_brightness(
+                (0, 200, 255), self.config.brightness
+            )
         if hour_ones in number_leds:
-            colors[number_leds[hour_ones]] = apply_brightness((0, 255, 200), self.config.brightness)
+            colors[number_leds[hour_ones]] = apply_brightness(
+                (0, 255, 200), self.config.brightness
+            )
 
         # Minuten (Magenta) - auf QWERTY Reihe
-        qwerty_leds = {1: 10, 2: 17, 3: 22, 4: 26, 5: 31, 6: 37, 7: 42, 8: 47, 9: 51, 0: 56}
+        qwerty_leds = {
+            1: 10,
+            2: 17,
+            3: 22,
+            4: 26,
+            5: 31,
+            6: 37,
+            7: 42,
+            8: 47,
+            9: 51,
+            0: 56,
+        }
         if min_tens in qwerty_leds:
-            colors[qwerty_leds[min_tens]] = apply_brightness((255, 0, 200), self.config.brightness)
+            colors[qwerty_leds[min_tens]] = apply_brightness(
+                (255, 0, 200), self.config.brightness
+            )
         if min_ones in qwerty_leds:
-            colors[qwerty_leds[min_ones]] = apply_brightness((255, 100, 200), self.config.brightness)
+            colors[qwerty_leds[min_ones]] = apply_brightness(
+                (255, 100, 200), self.config.brightness
+            )
 
         # Sekunden-Puls (dezent über die ganze Tastatur)
         pulse = (math.sin(second * math.pi / 30) + 1) / 2 * 0.1
         for i in range(self.num_leds):
             if colors[i].red < 20:
                 colors[i] = RGBColor(
-                    int(10 + pulse * 20),
-                    int(10 + pulse * 30),
-                    int(20 + pulse * 40)
+                    int(10 + pulse * 20), int(10 + pulse * 30), int(20 + pulse * 40)
                 )
 
         return colors
@@ -1847,11 +2022,7 @@ class EffectEngine:
             # Bei 80%+ Fortschritt: Pulsieren als Warnung
             if progress > 0.8:
                 pulse = (math.sin(elapsed * 3) + 1) / 2 * 0.3
-                rgb = (
-                    min(255, int(rgb[0] + 100 * pulse)),
-                    rgb[1],
-                    rgb[2]
-                )
+                rgb = (min(255, int(rgb[0] + 100 * pulse)), rgb[1], rgb[2])
 
             colors.append(apply_brightness(rgb, self.config.brightness))
 
@@ -1887,7 +2058,9 @@ class EffectEngine:
                 if ram < 0.5:
                     rgb = blend_colors((0, 0, 50), (0, 100, 150), ram * 2)
                 elif ram < 0.8:
-                    rgb = blend_colors((0, 100, 150), (200, 100, 200), (ram - 0.5) / 0.3)
+                    rgb = blend_colors(
+                        (0, 100, 150), (200, 100, 200), (ram - 0.5) / 0.3
+                    )
                 else:
                     # Kritisch: Pulsierendes Magenta
                     pulse = (math.sin(elapsed * 5) + 1) / 2
@@ -1913,21 +2086,101 @@ class EffectEngine:
         # LED-Reihenfolge für Hosts (von links nach rechts, oben nach unten)
         host_leds = [
             # Reihe 1: Zahlen (wichtigste Hosts)
-            6, 11, 16, 21, 25, 30, 36, 41, 46, 50, 55, 60,
+            6,
+            11,
+            16,
+            21,
+            25,
+            30,
+            36,
+            41,
+            46,
+            50,
+            55,
+            60,
             # Reihe 2: QWERTZ
-            10, 17, 22, 26, 31, 37, 42, 47, 51, 56, 61, 66,
+            10,
+            17,
+            22,
+            26,
+            31,
+            37,
+            42,
+            47,
+            51,
+            56,
+            61,
+            66,
             # Reihe 3: ASDF
-            12, 18, 23, 27, 32, 38, 43, 48, 52, 57, 62, 67,
+            12,
+            18,
+            23,
+            27,
+            32,
+            38,
+            43,
+            48,
+            52,
+            57,
+            62,
+            67,
             # Reihe 4: YXCV
-            7, 13, 19, 28, 33, 39, 44, 53, 58, 63, 70,
+            7,
+            13,
+            19,
+            28,
+            33,
+            39,
+            44,
+            53,
+            58,
+            63,
+            70,
             # F-Tasten
-            9, 15, 20, 24, 35, 40, 45, 49, 54, 59, 64, 68,
+            9,
+            15,
+            20,
+            24,
+            35,
+            40,
+            45,
+            49,
+            54,
+            59,
+            64,
+            68,
             # Numpad
-            85, 89, 93, 96, 86, 90, 94, 87, 91, 95, 97, 88, 92, 98, 103, 104,
+            85,
+            89,
+            93,
+            96,
+            86,
+            90,
+            94,
+            87,
+            91,
+            95,
+            97,
+            88,
+            92,
+            98,
+            103,
+            104,
             # Sondertasten
-            74, 79, 83, 75, 80, 84, 73, 78, 82,
+            74,
+            79,
+            83,
+            75,
+            80,
+            84,
+            73,
+            78,
+            82,
             # Pfeiltasten
-            76, 100, 101, 102,
+            76,
+            100,
+            101,
+            102,
         ]
 
         # Mapping: hostname -> (led_index, host_idx)
@@ -1941,10 +2194,10 @@ class EffectEngine:
                 continue
 
             host = self.checkmk.hosts[idx]
-            state = host['state']
-            name = host['name']
+            state = host["state"]
+            name = host["name"]
             host_to_led[name] = (led, idx)
-            self.led_to_host[led] = {'name': name, 'state': state, 'idx': idx}
+            self.led_to_host[led] = {"name": name, "state": state, "idx": idx}
 
             # Prüfe ob Supernova aktiv
             if name in self.checkmk.supernovas:
@@ -1954,22 +2207,38 @@ class EffectEngine:
             if state == 0:
                 # OK = Theme-Farbe (statisch)
                 status_color = self.colors.get_status_color(0)
-                rgb = (int(status_color[0] * 0.85), int(status_color[1] * 0.85), int(status_color[2] * 0.85))
+                rgb = (
+                    int(status_color[0] * 0.85),
+                    int(status_color[1] * 0.85),
+                    int(status_color[2] * 0.85),
+                )
             elif state == 1:
                 # WARN = Theme-Farbe (pulsierend)
                 pulse = 0.3 + abs(math.sin(elapsed * 3)) * 0.7
                 status_color = self.colors.get_status_color(1)
-                rgb = (int(status_color[0] * pulse), int(status_color[1] * pulse), int(status_color[2] * pulse))
+                rgb = (
+                    int(status_color[0] * pulse),
+                    int(status_color[1] * pulse),
+                    int(status_color[2] * pulse),
+                )
             elif state == 2:
                 # CRIT = Theme-Farbe (schnell pulsierend)
                 pulse = 0.2 + abs(math.sin(elapsed * 5)) * 0.8
                 status_color = self.colors.get_status_color(2)
-                rgb = (int(status_color[0] * pulse), int(status_color[1] * pulse), int(status_color[2] * pulse))
+                rgb = (
+                    int(status_color[0] * pulse),
+                    int(status_color[1] * pulse),
+                    int(status_color[2] * pulse),
+                )
             else:
                 # UNKNOWN = Theme-Farbe (pulsierend)
                 pulse = 0.3 + abs(math.sin(elapsed * 2.5)) * 0.7
                 status_color = self.colors.get_status_color(3)
-                rgb = (int(status_color[0] * pulse), int(status_color[1] * pulse), int(status_color[2] * pulse))
+                rgb = (
+                    int(status_color[0] * pulse),
+                    int(status_color[1] * pulse),
+                    int(status_color[2] * pulse),
+                )
 
             colors[led] = apply_brightness(rgb, self.config.brightness)
 
@@ -1981,9 +2250,9 @@ class EffectEngine:
                 continue
 
             led, host_idx = host_to_led[hostname]
-            age = now - supernova['start']
-            prev_state = supernova['prev_state']
-            priority = supernova['priority']
+            age = now - supernova["start"]
+            prev_state = supernova["prev_state"]
+            priority = supernova["priority"]
 
             # Vorherige Farbe bestimmen
             if prev_state == 0:
@@ -2000,9 +2269,11 @@ class EffectEngine:
                 # Langsam starten, exponentiell schneller werden
                 speed = 2 + (age / 4.0) ** 2 * 25  # Von 2 Hz auf 27 Hz
                 pulse = 0.3 + abs(math.sin(age * speed * math.pi)) * 0.7
-                rgb = (int(prev_color[0] * pulse),
-                       int(prev_color[1] * pulse),
-                       int(prev_color[2] * pulse))
+                rgb = (
+                    int(prev_color[0] * pulse),
+                    int(prev_color[1] * pulse),
+                    int(prev_color[2] * pulse),
+                )
                 colors[led] = apply_brightness(rgb, self.config.brightness)
 
             # ─────────────────────────────────────────────────────────────
@@ -2022,18 +2293,30 @@ class EffectEngine:
 
                 # Farbverlauf
                 if t < 0.33:
-                    rgb = blend_colors((50, 50, 255), (180, 50, 255), t * 3)  # Blau->Lila
+                    rgb = blend_colors(
+                        (50, 50, 255), (180, 50, 255), t * 3
+                    )  # Blau->Lila
                 elif t < 0.66:
-                    rgb = blend_colors((180, 50, 255), (150, 200, 255), (t - 0.33) * 3)  # Lila->Hellblau
+                    rgb = blend_colors(
+                        (180, 50, 255), (150, 200, 255), (t - 0.33) * 3
+                    )  # Lila->Hellblau
                 else:
-                    rgb = blend_colors((150, 200, 255), (255, 255, 255), (t - 0.66) * 3)  # Hellblau->Weiß
+                    rgb = blend_colors(
+                        (150, 200, 255), (255, 255, 255), (t - 0.66) * 3
+                    )  # Hellblau->Weiß
 
                 # Flicker - wird schneller und unregelmäßiger
                 flicker_speed = 5 + t * 40
                 flicker_intensity = 0.1 + t * 0.5
-                flicker = 1.0 - random.random() * flicker_intensity * (0.5 + 0.5 * math.sin(age * flicker_speed))
+                flicker = 1.0 - random.random() * flicker_intensity * (
+                    0.5 + 0.5 * math.sin(age * flicker_speed)
+                )
 
-                rgb = (int(rgb[0] * flicker), int(rgb[1] * flicker), int(rgb[2] * flicker))
+                rgb = (
+                    int(rgb[0] * flicker),
+                    int(rgb[1] * flicker),
+                    int(rgb[2] * flicker),
+                )
                 colors[led] = apply_brightness(rgb, self.config.brightness)
 
             # ─────────────────────────────────────────────────────────────
@@ -2060,15 +2343,25 @@ class EffectEngine:
                     if other_led == led:
                         continue
                     other_pos = self.led_positions.get(other_led, (0, 0))
-                    dist = math.sqrt((other_pos[0] - led_pos[0])**2 +
-                                    (other_pos[1] - led_pos[1])**2)
+                    dist = math.sqrt(
+                        (other_pos[0] - led_pos[0]) ** 2
+                        + (other_pos[1] - led_pos[1]) ** 2
+                    )
 
                     if dist < neighbor_radius:
                         # Nachbar-Intensität
                         neighbor_intensity = (1 - dist / neighbor_radius) * (1 - t)
-                        current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
-                        white_blend = blend_colors(current, (255, 255, 255), neighbor_intensity * 0.8)
-                        colors[other_led] = apply_brightness(white_blend, self.config.brightness)
+                        current = (
+                            colors[other_led].red,
+                            colors[other_led].green,
+                            colors[other_led].blue,
+                        )
+                        white_blend = blend_colors(
+                            current, (255, 255, 255), neighbor_intensity * 0.8
+                        )
+                        colors[other_led] = apply_brightness(
+                            white_blend, self.config.brightness
+                        )
 
             # ─────────────────────────────────────────────────────────────
             # Phase 6 (10-12.5s): Lila Welle + Host bleibt rot
@@ -2076,7 +2369,9 @@ class EffectEngine:
             elif age < 12.5:
                 # Host bleibt rot pulsierend
                 pulse = 0.7 + math.sin(elapsed * 4) * 0.3
-                colors[led] = apply_brightness((int(255 * pulse), 0, 0), self.config.brightness)
+                colors[led] = apply_brightness(
+                    (int(255 * pulse), 0, 0), self.config.brightness
+                )
 
                 # Lila Welle breitet sich aus
                 wave_age = age - 10.0
@@ -2088,23 +2383,37 @@ class EffectEngine:
                     if other_led == led:
                         continue
                     other_pos = self.led_positions.get(other_led, (0, 0))
-                    dist = math.sqrt((other_pos[0] - led_pos[0])**2 +
-                                    (other_pos[1] - led_pos[1])**2)
+                    dist = math.sqrt(
+                        (other_pos[0] - led_pos[0]) ** 2
+                        + (other_pos[1] - led_pos[1]) ** 2
+                    )
 
                     # Ring-Effekt
                     ring_dist = abs(dist - wave_radius)
                     if ring_dist < wave_width:
-                        wave_intensity = (1 - ring_dist / wave_width) * max(0, 1 - wave_age / 2)
+                        wave_intensity = (1 - ring_dist / wave_width) * max(
+                            0, 1 - wave_age / 2
+                        )
                         if wave_intensity > 0:
-                            current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
+                            current = (
+                                colors[other_led].red,
+                                colors[other_led].green,
+                                colors[other_led].blue,
+                            )
                             purple = (200, 100, 255)  # Helllila
-                            wave_blend = blend_colors(current, purple, wave_intensity * 0.6)
-                            colors[other_led] = apply_brightness(wave_blend, self.config.brightness)
+                            wave_blend = blend_colors(
+                                current, purple, wave_intensity * 0.6
+                            )
+                            colors[other_led] = apply_brightness(
+                                wave_blend, self.config.brightness
+                            )
 
             else:
                 # Animation vorbei - normales Rot
                 pulse = 0.6 + math.sin(elapsed * 3) * 0.4
-                colors[led] = apply_brightness((int(255 * pulse), 0, 0), self.config.brightness)
+                colors[led] = apply_brightness(
+                    (int(255 * pulse), 0, 0), self.config.brightness
+                )
 
         # ═══════════════════════════════════════════════════════════════════
         # 🔥 PHOENIX ANIMATION (Recovery: CRIT/WARN → OK)
@@ -2114,9 +2423,9 @@ class EffectEngine:
                 continue
 
             led, host_idx = host_to_led[hostname]
-            age = now - phoenix['start']
-            prev_state = phoenix['prev_state']
-            priority = phoenix['priority']
+            age = now - phoenix["start"]
+            prev_state = phoenix["prev_state"]
+            priority = phoenix["priority"]
 
             # Vorherige Problem-Farbe
             if prev_state == 2:
@@ -2131,9 +2440,11 @@ class EffectEngine:
             # ─────────────────────────────────────────────────────────────
             if age < 0.5:
                 flash = 0.5 + age * 1.0  # 0.5 -> 1.0
-                rgb = (int(problem_color[0] * flash),
-                       int(problem_color[1] * flash),
-                       int(problem_color[2] * flash))
+                rgb = (
+                    int(problem_color[0] * flash),
+                    int(problem_color[1] * flash),
+                    int(problem_color[2] * flash),
+                )
                 colors[led] = apply_brightness(rgb, self.config.brightness)
 
             # ─────────────────────────────────────────────────────────────
@@ -2143,9 +2454,11 @@ class EffectEngine:
                 t = (age - 0.5) / 1.5
                 # Taste wird dunkler
                 fade = max(0, 1 - t * 1.5)
-                rgb = (int(problem_color[0] * fade * 0.3),
-                       int(problem_color[1] * fade * 0.3),
-                       int(problem_color[2] * fade * 0.3))
+                rgb = (
+                    int(problem_color[0] * fade * 0.3),
+                    int(problem_color[1] * fade * 0.3),
+                    int(problem_color[2] * fade * 0.3),
+                )
                 colors[led] = apply_brightness(rgb, self.config.brightness)
 
                 # Asche-Partikel fallen nach unten (Nachbar-LEDs unterhalb)
@@ -2155,12 +2468,22 @@ class EffectEngine:
                     dy = other_pos[1] - led_pos[1]  # Positiv = unterhalb
 
                     if dx < 1.5 and dy > 0 and dy < 2 + t * 2:
-                        ash_intensity = (1 - dx / 1.5) * (1 - dy / (2 + t * 2)) * t * (1 - t)
+                        ash_intensity = (
+                            (1 - dx / 1.5) * (1 - dy / (2 + t * 2)) * t * (1 - t)
+                        )
                         if ash_intensity > 0:
                             ash_color = (80, 40, 20)  # Dunkle Asche
-                            current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
-                            ash_blend = blend_colors(current, ash_color, ash_intensity * 0.5)
-                            colors[other_led] = apply_brightness(ash_blend, self.config.brightness)
+                            current = (
+                                colors[other_led].red,
+                                colors[other_led].green,
+                                colors[other_led].blue,
+                            )
+                            ash_blend = blend_colors(
+                                current, ash_color, ash_intensity * 0.5
+                            )
+                            colors[other_led] = apply_brightness(
+                                ash_blend, self.config.brightness
+                            )
 
             # ─────────────────────────────────────────────────────────────
             # Phase 3 (2-4s): Grüne Flamme steigt von unten auf
@@ -2171,9 +2494,11 @@ class EffectEngine:
                 # Grüne Flamme auf der Haupttaste
                 flame = 0.3 + t * 0.7
                 flicker = 0.8 + random.random() * 0.2
-                rgb = (int(50 * flame * flicker),
-                       int(255 * flame * flicker),
-                       int(80 * flame * flicker))
+                rgb = (
+                    int(50 * flame * flicker),
+                    int(255 * flame * flicker),
+                    int(80 * flame * flicker),
+                )
                 colors[led] = apply_brightness(rgb, self.config.brightness)
 
                 # Flammen-Effekt von unten
@@ -2184,13 +2509,25 @@ class EffectEngine:
 
                     flame_height = t * 3
                     if dx < 1 and dy > 0 and dy < flame_height:
-                        flame_intensity = (1 - dx) * (1 - dy / flame_height) * (1 - t * 0.5)
+                        flame_intensity = (
+                            (1 - dx) * (1 - dy / flame_height) * (1 - t * 0.5)
+                        )
                         flame_flicker = 0.7 + random.random() * 0.3
                         if flame_intensity > 0:
                             flame_color = (100, 255, 100)
-                            current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
-                            flame_blend = blend_colors(current, flame_color, flame_intensity * flame_flicker * 0.6)
-                            colors[other_led] = apply_brightness(flame_blend, self.config.brightness)
+                            current = (
+                                colors[other_led].red,
+                                colors[other_led].green,
+                                colors[other_led].blue,
+                            )
+                            flame_blend = blend_colors(
+                                current,
+                                flame_color,
+                                flame_intensity * flame_flicker * 0.6,
+                            )
+                            colors[other_led] = apply_brightness(
+                                flame_blend, self.config.brightness
+                            )
 
             # ─────────────────────────────────────────────────────────────
             # Phase 4 (4-5.5s): Sanfte grüne Welle breitet sich aus
@@ -2200,7 +2537,9 @@ class EffectEngine:
 
                 # Haupttaste: Stabiles Grün
                 pulse = 0.8 + math.sin(elapsed * 2) * 0.2
-                colors[led] = apply_brightness((0, int(200 * pulse), int(60 * pulse)), self.config.brightness)
+                colors[led] = apply_brightness(
+                    (0, int(200 * pulse), int(60 * pulse)), self.config.brightness
+                )
 
                 # Heilungs-Welle
                 wave_radius = t * 6
@@ -2210,21 +2549,36 @@ class EffectEngine:
                     if other_led == led:
                         continue
                     other_pos = self.led_positions.get(other_led, (0, 0))
-                    dist = math.sqrt((other_pos[0] - led_pos[0])**2 + (other_pos[1] - led_pos[1])**2)
+                    dist = math.sqrt(
+                        (other_pos[0] - led_pos[0]) ** 2
+                        + (other_pos[1] - led_pos[1]) ** 2
+                    )
 
                     ring_dist = abs(dist - wave_radius)
                     if ring_dist < wave_width:
-                        wave_intensity = (1 - ring_dist / wave_width) * max(0, 1 - t * 0.7)
+                        wave_intensity = (1 - ring_dist / wave_width) * max(
+                            0, 1 - t * 0.7
+                        )
                         if wave_intensity > 0:
-                            current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
+                            current = (
+                                colors[other_led].red,
+                                colors[other_led].green,
+                                colors[other_led].blue,
+                            )
                             heal_color = (50, 255, 100)  # Heilgrün
-                            wave_blend = blend_colors(current, heal_color, wave_intensity * 0.4)
-                            colors[other_led] = apply_brightness(wave_blend, self.config.brightness)
+                            wave_blend = blend_colors(
+                                current, heal_color, wave_intensity * 0.4
+                            )
+                            colors[other_led] = apply_brightness(
+                                wave_blend, self.config.brightness
+                            )
 
             else:
                 # Animation vorbei - normales Grün
                 pulse = 0.8 + math.sin(elapsed * 0.5 + host_idx * 0.1) * 0.2
-                colors[led] = apply_brightness((0, int(180 * pulse), int(50 * pulse)), self.config.brightness)
+                colors[led] = apply_brightness(
+                    (0, int(180 * pulse), int(50 * pulse)), self.config.brightness
+                )
 
         # ═══════════════════════════════════════════════════════════════════
         # ⚠️ WARNING ANIMATION (OK → WARN)
@@ -2234,8 +2588,8 @@ class EffectEngine:
                 continue
 
             led, host_idx = host_to_led[hostname]
-            age = now - warning['start']
-            priority = warning['priority']
+            age = now - warning["start"]
+            priority = warning["priority"]
             led_pos = self.led_positions.get(led, (0, 0))
 
             # ─────────────────────────────────────────────────────────────
@@ -2244,7 +2598,9 @@ class EffectEngine:
             if age < 0.3:
                 flicker = random.random()
                 if flicker > 0.5:
-                    colors[led] = apply_brightness((255, 200, 0), self.config.brightness)
+                    colors[led] = apply_brightness(
+                        (255, 200, 0), self.config.brightness
+                    )
                 else:
                     colors[led] = apply_brightness((100, 80, 0), self.config.brightness)
 
@@ -2270,14 +2626,27 @@ class EffectEngine:
                         if other_led == led:
                             continue
                         other_pos = self.led_positions.get(other_led, (0, 0))
-                        dist = math.sqrt((other_pos[0] - led_pos[0])**2 + (other_pos[1] - led_pos[1])**2)
+                        dist = math.sqrt(
+                            (other_pos[0] - led_pos[0]) ** 2
+                            + (other_pos[1] - led_pos[1]) ** 2
+                        )
 
                         if dist < neighbor_radius:
-                            neighbor_intensity = (1 - dist / neighbor_radius) * intensity * 0.4
-                            current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
+                            neighbor_intensity = (
+                                (1 - dist / neighbor_radius) * intensity * 0.4
+                            )
+                            current = (
+                                colors[other_led].red,
+                                colors[other_led].green,
+                                colors[other_led].blue,
+                            )
                             orange = (255, 120, 0)
-                            neighbor_blend = blend_colors(current, orange, neighbor_intensity)
-                            colors[other_led] = apply_brightness(neighbor_blend, self.config.brightness)
+                            neighbor_blend = blend_colors(
+                                current, orange, neighbor_intensity
+                            )
+                            colors[other_led] = apply_brightness(
+                                neighbor_blend, self.config.brightness
+                            )
 
             # ─────────────────────────────────────────────────────────────
             # Phase 3 (1.8-3.5s): Kleine gelbe Ringe breiten sich aus
@@ -2287,13 +2656,19 @@ class EffectEngine:
 
                 # Haupttaste: Gelb pulsierend
                 pulse = 0.7 + math.sin(age * 4) * 0.3
-                colors[led] = apply_brightness((int(255 * pulse), int(180 * pulse), 0), self.config.brightness)
+                colors[led] = apply_brightness(
+                    (int(255 * pulse), int(180 * pulse), 0), self.config.brightness
+                )
 
                 # 2 Wellen
                 for wave_num in range(2):
                     wave_start = wave_num * 0.4
                     if t > wave_start:
-                        wave_t = (t - wave_start) / (1.0 - wave_start) if wave_start < 1.0 else 0
+                        wave_t = (
+                            (t - wave_start) / (1.0 - wave_start)
+                            if wave_start < 1.0
+                            else 0
+                        )
                         wave_radius = wave_t * 4
                         wave_width = 1.0
 
@@ -2301,33 +2676,48 @@ class EffectEngine:
                             if other_led == led:
                                 continue
                             other_pos = self.led_positions.get(other_led, (0, 0))
-                            dist = math.sqrt((other_pos[0] - led_pos[0])**2 + (other_pos[1] - led_pos[1])**2)
+                            dist = math.sqrt(
+                                (other_pos[0] - led_pos[0]) ** 2
+                                + (other_pos[1] - led_pos[1]) ** 2
+                            )
 
                             ring_dist = abs(dist - wave_radius)
                             if ring_dist < wave_width:
-                                wave_intensity = (1 - ring_dist / wave_width) * max(0, 1 - wave_t)
+                                wave_intensity = (1 - ring_dist / wave_width) * max(
+                                    0, 1 - wave_t
+                                )
                                 if wave_intensity > 0:
-                                    current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
+                                    current = (
+                                        colors[other_led].red,
+                                        colors[other_led].green,
+                                        colors[other_led].blue,
+                                    )
                                     yellow = (255, 200, 50)
-                                    wave_blend = blend_colors(current, yellow, wave_intensity * 0.3)
-                                    colors[other_led] = apply_brightness(wave_blend, self.config.brightness)
+                                    wave_blend = blend_colors(
+                                        current, yellow, wave_intensity * 0.3
+                                    )
+                                    colors[other_led] = apply_brightness(
+                                        wave_blend, self.config.brightness
+                                    )
 
             else:
                 # Animation vorbei - normales Gelb
                 pulse = 0.7 + math.sin(elapsed * 2) * 0.3
-                colors[led] = apply_brightness((int(255 * pulse), int(180 * pulse), 0), self.config.brightness)
+                colors[led] = apply_brightness(
+                    (int(255 * pulse), int(180 * pulse), 0), self.config.brightness
+                )
 
         # ═══════════════════════════════════════════════════════════════════
         # 🕳️ BLACKHOLE ANIMATION (Host verschwindet)
         # ═══════════════════════════════════════════════════════════════════
         for hostname, blackhole in self.checkmk.blackholes.items():
-            key_idx = blackhole['key_index']
+            key_idx = blackhole["key_index"]
             if key_idx >= len(host_leds):
                 continue
 
             led = host_leds[key_idx]
-            age = now - blackhole['start']
-            priority = blackhole['priority']
+            age = now - blackhole["start"]
+            priority = blackhole["priority"]
             led_pos = self.led_positions.get(led, (0, 0))
 
             # ─────────────────────────────────────────────────────────────
@@ -2355,18 +2745,29 @@ class EffectEngine:
                     if other_led == led:
                         continue
                     other_pos = self.led_positions.get(other_led, (0, 0))
-                    dist = math.sqrt((other_pos[0] - led_pos[0])**2 + (other_pos[1] - led_pos[1])**2)
+                    dist = math.sqrt(
+                        (other_pos[0] - led_pos[0]) ** 2
+                        + (other_pos[1] - led_pos[1]) ** 2
+                    )
 
                     if dist < sog_radius:
                         # Intensität basierend auf Distanz und Zeit
                         sog_intensity = (1 - dist / sog_radius) * t
                         if sog_intensity > 0:
                             # Verdunkeln in Richtung Zentrum
-                            current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
-                            dark = (int(current[0] * (1 - sog_intensity * 0.5)),
-                                    int(current[1] * (1 - sog_intensity * 0.5)),
-                                    int(current[2] * (1 - sog_intensity * 0.5)))
-                            colors[other_led] = apply_brightness(dark, self.config.brightness)
+                            current = (
+                                colors[other_led].red,
+                                colors[other_led].green,
+                                colors[other_led].blue,
+                            )
+                            dark = (
+                                int(current[0] * (1 - sog_intensity * 0.5)),
+                                int(current[1] * (1 - sog_intensity * 0.5)),
+                                int(current[2] * (1 - sog_intensity * 0.5)),
+                            )
+                            colors[other_led] = apply_brightness(
+                                dark, self.config.brightness
+                            )
 
             # ─────────────────────────────────────────────────────────────
             # Phase 3 (2.5-3.5s): Implosion - alles kollabiert zum Zentrum
@@ -2383,17 +2784,28 @@ class EffectEngine:
                     if other_led == led:
                         continue
                     other_pos = self.led_positions.get(other_led, (0, 0))
-                    dist = math.sqrt((other_pos[0] - led_pos[0])**2 + (other_pos[1] - led_pos[1])**2)
+                    dist = math.sqrt(
+                        (other_pos[0] - led_pos[0]) ** 2
+                        + (other_pos[1] - led_pos[1]) ** 2
+                    )
 
                     ring_dist = abs(dist - ring_radius)
                     if ring_dist < ring_width:
                         ring_intensity = (1 - ring_dist / ring_width) * (1 - t)
                         if ring_intensity > 0:
                             # Dunkles Lila kollabiert
-                            current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
+                            current = (
+                                colors[other_led].red,
+                                colors[other_led].green,
+                                colors[other_led].blue,
+                            )
                             purple = (60, 0, 100)
-                            ring_blend = blend_colors(current, purple, ring_intensity * 0.6)
-                            colors[other_led] = apply_brightness(ring_blend, self.config.brightness)
+                            ring_blend = blend_colors(
+                                current, purple, ring_intensity * 0.6
+                            )
+                            colors[other_led] = apply_brightness(
+                                ring_blend, self.config.brightness
+                            )
 
             # ─────────────────────────────────────────────────────────────
             # Phase 4 (3.5-5s): Nachrücken - Welle zeigt Verschiebung
@@ -2411,29 +2823,37 @@ class EffectEngine:
                         wave_dist = abs(other_pos[0] - wave_x)
                         if wave_dist < 1.5:
                             wave_intensity = (1 - wave_dist / 1.5) * 0.5
-                            current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
+                            current = (
+                                colors[other_led].red,
+                                colors[other_led].green,
+                                colors[other_led].blue,
+                            )
                             shift_color = (0, 200, 255)  # Cyan für Verschiebung
-                            wave_blend = blend_colors(current, shift_color, wave_intensity)
-                            colors[other_led] = apply_brightness(wave_blend, self.config.brightness)
+                            wave_blend = blend_colors(
+                                current, shift_color, wave_intensity
+                            )
+                            colors[other_led] = apply_brightness(
+                                wave_blend, self.config.brightness
+                            )
 
         # ═══════════════════════════════════════════════════════════════════
         # ✨ SPAWN ANIMATION (Neuer Host erscheint)
         # ═══════════════════════════════════════════════════════════════════
         for hostname, spawn in self.checkmk.spawns.items():
-            key_idx = spawn['key_index']
+            key_idx = spawn["key_index"]
             if key_idx >= len(host_leds):
                 continue
 
             led = host_leds[key_idx]
-            age = now - spawn['start']
-            priority = spawn['priority']
+            age = now - spawn["start"]
+            priority = spawn["priority"]
             led_pos = self.led_positions.get(led, (0, 0))
 
             # Host-Status für finale Farbe finden
             final_state = 0
             for h in self.checkmk.hosts:
-                if h['name'] == hostname:
-                    final_state = h['state']
+                if h["name"] == hostname:
+                    final_state = h["state"]
                     break
 
             if final_state == 0:
@@ -2450,22 +2870,36 @@ class EffectEngine:
                 t = age / 0.5
                 # Weißer Blitz
                 flash = 1.0 if random.random() > t * 0.8 else 0.3
-                colors[led] = apply_brightness((int(255 * flash), int(255 * flash), int(255 * flash)), self.config.brightness)
+                colors[led] = apply_brightness(
+                    (int(255 * flash), int(255 * flash), int(255 * flash)),
+                    self.config.brightness,
+                )
 
                 # Funken auf Nachbarn
-                spark_radius = 3
+                spark_radius = 3.0
                 for other_led in range(self.num_leds):
                     if other_led == led:
                         continue
                     other_pos = self.led_positions.get(other_led, (0, 0))
-                    dist = math.sqrt((other_pos[0] - led_pos[0])**2 + (other_pos[1] - led_pos[1])**2)
+                    dist = math.sqrt(
+                        (other_pos[0] - led_pos[0]) ** 2
+                        + (other_pos[1] - led_pos[1]) ** 2
+                    )
 
                     if dist < spark_radius and random.random() > 0.7:
                         spark_intensity = (1 - dist / spark_radius) * random.random()
                         spark_color = (255, 255, 200)  # Gelb-weiß
-                        current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
-                        spark_blend = blend_colors(current, spark_color, spark_intensity * 0.7)
-                        colors[other_led] = apply_brightness(spark_blend, self.config.brightness)
+                        current = (
+                            colors[other_led].red,
+                            colors[other_led].green,
+                            colors[other_led].blue,
+                        )
+                        spark_blend = blend_colors(
+                            current, spark_color, spark_intensity * 0.7
+                        )
+                        colors[other_led] = apply_brightness(
+                            spark_blend, self.config.brightness
+                        )
 
             # ─────────────────────────────────────────────────────────────
             # Phase 2 (0.5-2s): Materialisierung - Farbe bildet sich
@@ -2486,16 +2920,27 @@ class EffectEngine:
                     if other_led == led:
                         continue
                     other_pos = self.led_positions.get(other_led, (0, 0))
-                    dist = math.sqrt((other_pos[0] - led_pos[0])**2 + (other_pos[1] - led_pos[1])**2)
+                    dist = math.sqrt(
+                        (other_pos[0] - led_pos[0]) ** 2
+                        + (other_pos[1] - led_pos[1]) ** 2
+                    )
 
                     ring_dist = abs(dist - ring_radius)
                     if ring_dist < ring_width:
                         ring_intensity = (1 - ring_dist / ring_width) * (1 - t) * 0.4
                         if ring_intensity > 0:
-                            current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
+                            current = (
+                                colors[other_led].red,
+                                colors[other_led].green,
+                                colors[other_led].blue,
+                            )
                             ring_color = (200, 255, 200)  # Helles Grün
-                            ring_blend = blend_colors(current, ring_color, ring_intensity)
-                            colors[other_led] = apply_brightness(ring_blend, self.config.brightness)
+                            ring_blend = blend_colors(
+                                current, ring_color, ring_intensity
+                            )
+                            colors[other_led] = apply_brightness(
+                                ring_blend, self.config.brightness
+                            )
 
             # ─────────────────────────────────────────────────────────────
             # Phase 3 (2-3.5s): Stabilisierung mit Nachleuchten
@@ -2504,9 +2949,11 @@ class EffectEngine:
                 t = (age - 2.0) / 1.5
                 # Sanftes Pulsieren in finaler Farbe
                 pulse = 0.8 + math.sin(age * 8) * 0.2 * (1 - t)
-                rgb = (int(final_color[0] * pulse),
-                       int(final_color[1] * pulse),
-                       int(final_color[2] * pulse))
+                rgb = (
+                    int(final_color[0] * pulse),
+                    int(final_color[1] * pulse),
+                    int(final_color[2] * pulse),
+                )
                 colors[led] = apply_brightness(rgb, self.config.brightness)
 
                 # Leichtes Glühen auf Nachbarn (wird schwächer)
@@ -2515,20 +2962,31 @@ class EffectEngine:
                     if other_led == led:
                         continue
                     other_pos = self.led_positions.get(other_led, (0, 0))
-                    dist = math.sqrt((other_pos[0] - led_pos[0])**2 + (other_pos[1] - led_pos[1])**2)
+                    dist = math.sqrt(
+                        (other_pos[0] - led_pos[0]) ** 2
+                        + (other_pos[1] - led_pos[1]) ** 2
+                    )
 
                     if dist < glow_radius:
                         glow_intensity = (1 - dist / glow_radius) * (1 - t) * 0.2
                         if glow_intensity > 0:
-                            current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
-                            glow_blend = blend_colors(current, final_color, glow_intensity)
-                            colors[other_led] = apply_brightness(glow_blend, self.config.brightness)
+                            current = (
+                                colors[other_led].red,
+                                colors[other_led].green,
+                                colors[other_led].blue,
+                            )
+                            glow_blend = blend_colors(
+                                current, final_color, glow_intensity
+                            )
+                            colors[other_led] = apply_brightness(
+                                glow_blend, self.config.brightness
+                            )
 
         # ═══════════════════════════════════════════════════════════════════
         # 🎉 CELEBRATION ANIMATION (Alle Hosts OK!)
         # ═══════════════════════════════════════════════════════════════════
         if self.checkmk.celebration:
-            age = now - self.checkmk.celebration['start']
+            age = now - self.checkmk.celebration["start"]
 
             # Phase 1 (0-2s): Grüne Welle von Mitte nach außen
             if age < 2.0:
@@ -2538,7 +2996,9 @@ class EffectEngine:
 
                 for i in range(self.num_leds):
                     pos = self.led_positions.get(i, (0, 0))
-                    dist = math.sqrt((pos[0] - center_x)**2 + (pos[1] - center_y)**2)
+                    dist = math.sqrt(
+                        (pos[0] - center_x) ** 2 + (pos[1] - center_y) ** 2
+                    )
                     ring_dist = abs(dist - wave_radius)
 
                     if ring_dist < wave_width:
@@ -2547,7 +3007,9 @@ class EffectEngine:
                         green = self.colors.get_status_color(0)
                         white = (255, 255, 255)
                         rgb = blend_colors(green, white, intensity * 0.5)
-                        colors[i] = apply_brightness(rgb, self.config.brightness * intensity)
+                        colors[i] = apply_brightness(
+                            rgb, self.config.brightness * intensity
+                        )
 
             # Phase 2 (2-5s): Regenbogen-Feuerwerk
             elif age < 5.0:
@@ -2555,20 +3017,25 @@ class EffectEngine:
                 for i in range(self.num_leds):
                     pos = self.led_positions.get(i, (0, 0))
                     # Mehrere explodierende Punkte
-                    intensity = 0
+                    spark_intensity = 0.0
                     for spark in range(5):
                         spark_x = 5 + spark * 4
                         spark_y = 1 + (spark % 3) * 1.5
                         spark_radius = phase_age * 6 + spark * 0.5
-                        dist = math.sqrt((pos[0] - spark_x)**2 + (pos[1] - spark_y)**2)
+                        dist = math.sqrt(
+                            (pos[0] - spark_x) ** 2 + (pos[1] - spark_y) ** 2
+                        )
                         if dist < spark_radius and dist > spark_radius - 2:
-                            intensity = max(intensity, (1 - (spark_radius - dist) / 2) * (1 - phase_age / 3))
+                            spark_intensity = max(
+                                spark_intensity,
+                                (1 - (spark_radius - dist) / 2) * (1 - phase_age / 3),
+                            )
 
-                    if intensity > 0:
+                    if spark_intensity > 0:
                         hue = (pos[0] / 20 + phase_age * 0.5) % 1.0
                         rgb = hsv_to_rgb(hue, 1.0, 1.0)
                         current = (colors[i].red, colors[i].green, colors[i].blue)
-                        blended = blend_colors(current, rgb, intensity)
+                        blended = blend_colors(current, rgb, spark_intensity)
                         colors[i] = apply_brightness(blended, self.config.brightness)
 
             # Phase 3 (5-8s): Sanftes Grün-Pulsieren (Übergang zurück)
@@ -2577,9 +3044,11 @@ class EffectEngine:
                 fade = 1 - phase_age / 3  # Ausblenden
                 pulse = 0.7 + math.sin(phase_age * 4) * 0.3
                 green = self.colors.get_status_color(0)
-                rgb = (int(green[0] * pulse * fade),
-                       int(green[1] * pulse * fade),
-                       int(green[2] * pulse * fade))
+                rgb = (
+                    int(green[0] * pulse * fade),
+                    int(green[1] * pulse * fade),
+                    int(green[2] * pulse * fade),
+                )
 
                 for i in range(self.num_leds):
                     current = (colors[i].red, colors[i].green, colors[i].blue)
@@ -2589,13 +3058,15 @@ class EffectEngine:
         # ═══════════════════════════════════════════════════════════════════
         # ESC-Taste: Gesamtstatus
         # ═══════════════════════════════════════════════════════════════════
-        problems = sum(1 for h in self.checkmk.hosts if h['state'] > 0)
-        critical = sum(1 for h in self.checkmk.hosts if h['state'] == 2)
+        problems = sum(1 for h in self.checkmk.hosts if h["state"] > 0)
+        critical = sum(1 for h in self.checkmk.hosts if h["state"] == 2)
 
         if critical > 0:
             # Kritische Hosts: Rot pulsierend
             pulse = 0.5 + abs(math.sin(elapsed * 5)) * 0.5
-            colors[0] = apply_brightness((int(255 * pulse), 0, 0), self.config.brightness)
+            colors[0] = apply_brightness(
+                (int(255 * pulse), 0, 0), self.config.brightness
+            )
         elif problems > 0:
             # Nur Warnings: Orange
             colors[0] = apply_brightness((255, 150, 0), self.config.brightness)
@@ -2649,52 +3120,97 @@ class EffectEngine:
 # INPUT HANDLER
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class InputHandler:
     """Liest Tastatureingaben für reaktive Effekte und Steuerung."""
 
     # Mapping von evdev Keycodes zu LED-Indizes (vereinfacht)
     KEYCODE_TO_LED = {
         ecodes.KEY_ESC: 0,
-        ecodes.KEY_F1: 9, ecodes.KEY_F2: 15, ecodes.KEY_F3: 20, ecodes.KEY_F4: 24,
-        ecodes.KEY_F5: 35, ecodes.KEY_F6: 40, ecodes.KEY_F7: 45, ecodes.KEY_F8: 49,
-        ecodes.KEY_F9: 54, ecodes.KEY_F10: 59, ecodes.KEY_F11: 64, ecodes.KEY_F12: 68,
-        ecodes.KEY_GRAVE: 1, ecodes.KEY_1: 6, ecodes.KEY_2: 11, ecodes.KEY_3: 16,
-        ecodes.KEY_4: 21, ecodes.KEY_5: 25, ecodes.KEY_6: 30, ecodes.KEY_7: 36,
-        ecodes.KEY_8: 41, ecodes.KEY_9: 46, ecodes.KEY_0: 50, ecodes.KEY_MINUS: 55,
-        ecodes.KEY_EQUAL: 60, ecodes.KEY_BACKSPACE: 65,
-        ecodes.KEY_TAB: 2, ecodes.KEY_Q: 10, ecodes.KEY_W: 17, ecodes.KEY_E: 22,
-        ecodes.KEY_R: 26, ecodes.KEY_T: 31, ecodes.KEY_Y: 37, ecodes.KEY_U: 42,
-        ecodes.KEY_I: 47, ecodes.KEY_O: 51, ecodes.KEY_P: 56,
-        ecodes.KEY_CAPSLOCK: 3, ecodes.KEY_A: 12, ecodes.KEY_S: 18, ecodes.KEY_D: 23,
-        ecodes.KEY_F: 27, ecodes.KEY_G: 32, ecodes.KEY_H: 38, ecodes.KEY_J: 43,
-        ecodes.KEY_K: 48, ecodes.KEY_L: 52, ecodes.KEY_ENTER: 69,
-        ecodes.KEY_LEFTSHIFT: 4, ecodes.KEY_Z: 13, ecodes.KEY_X: 19, ecodes.KEY_C: 28,
-        ecodes.KEY_V: 33, ecodes.KEY_B: 39, ecodes.KEY_N: 44, ecodes.KEY_M: 53,
+        ecodes.KEY_F1: 9,
+        ecodes.KEY_F2: 15,
+        ecodes.KEY_F3: 20,
+        ecodes.KEY_F4: 24,
+        ecodes.KEY_F5: 35,
+        ecodes.KEY_F6: 40,
+        ecodes.KEY_F7: 45,
+        ecodes.KEY_F8: 49,
+        ecodes.KEY_F9: 54,
+        ecodes.KEY_F10: 59,
+        ecodes.KEY_F11: 64,
+        ecodes.KEY_F12: 68,
+        ecodes.KEY_GRAVE: 1,
+        ecodes.KEY_1: 6,
+        ecodes.KEY_2: 11,
+        ecodes.KEY_3: 16,
+        ecodes.KEY_4: 21,
+        ecodes.KEY_5: 25,
+        ecodes.KEY_6: 30,
+        ecodes.KEY_7: 36,
+        ecodes.KEY_8: 41,
+        ecodes.KEY_9: 46,
+        ecodes.KEY_0: 50,
+        ecodes.KEY_MINUS: 55,
+        ecodes.KEY_EQUAL: 60,
+        ecodes.KEY_BACKSPACE: 65,
+        ecodes.KEY_TAB: 2,
+        ecodes.KEY_Q: 10,
+        ecodes.KEY_W: 17,
+        ecodes.KEY_E: 22,
+        ecodes.KEY_R: 26,
+        ecodes.KEY_T: 31,
+        ecodes.KEY_Y: 37,
+        ecodes.KEY_U: 42,
+        ecodes.KEY_I: 47,
+        ecodes.KEY_O: 51,
+        ecodes.KEY_P: 56,
+        ecodes.KEY_CAPSLOCK: 3,
+        ecodes.KEY_A: 12,
+        ecodes.KEY_S: 18,
+        ecodes.KEY_D: 23,
+        ecodes.KEY_F: 27,
+        ecodes.KEY_G: 32,
+        ecodes.KEY_H: 38,
+        ecodes.KEY_J: 43,
+        ecodes.KEY_K: 48,
+        ecodes.KEY_L: 52,
+        ecodes.KEY_ENTER: 69,
+        ecodes.KEY_LEFTSHIFT: 4,
+        ecodes.KEY_Z: 13,
+        ecodes.KEY_X: 19,
+        ecodes.KEY_C: 28,
+        ecodes.KEY_V: 33,
+        ecodes.KEY_B: 39,
+        ecodes.KEY_N: 44,
+        ecodes.KEY_M: 53,
         ecodes.KEY_RIGHTSHIFT: 71,
-        ecodes.KEY_LEFTCTRL: 5, ecodes.KEY_LEFTALT: 14, ecodes.KEY_SPACE: 34,
-        ecodes.KEY_RIGHTALT: 72, ecodes.KEY_RIGHTCTRL: 99,
+        ecodes.KEY_LEFTCTRL: 5,
+        ecodes.KEY_LEFTALT: 14,
+        ecodes.KEY_SPACE: 34,
+        ecodes.KEY_RIGHTALT: 72,
+        ecodes.KEY_RIGHTCTRL: 99,
     }
 
     EFFECT_KEYS = {
         # 🎵 Audio (F1-F3)
-        ecodes.KEY_F1: "audio",        # Audio Equalizer
+        ecodes.KEY_F1: "audio",  # Audio Equalizer
         ecodes.KEY_F2: "audio_pulse",  # Bass-Pulse
-        ecodes.KEY_F3: "audio_wave",   # Audio-Wellen
+        ecodes.KEY_F3: "audio_wave",  # Audio-Wellen
         # 🌅 Schön (F4-F6)
-        ecodes.KEY_F4: "aurora",       # Nordlichter
-        ecodes.KEY_F5: "sunset",       # Sonnenuntergang
-        ecodes.KEY_F6: "ocean",        # Ozean-Wellen
+        ecodes.KEY_F4: "aurora",  # Nordlichter
+        ecodes.KEY_F5: "sunset",  # Sonnenuntergang
+        ecodes.KEY_F6: "ocean",  # Ozean-Wellen
         # ⏱️ Nützlich (F7-F8)
-        ecodes.KEY_F7: "clock",        # Uhrzeit-Anzeige
-        ecodes.KEY_F8: "checkmk",      # CheckMK Monitoring (Default)
+        ecodes.KEY_F7: "clock",  # Uhrzeit-Anzeige
+        ecodes.KEY_F8: "checkmk",  # CheckMK Monitoring (Default)
     }
 
     def __init__(self, config: Config, engine: EffectEngine):
         self.config = config
         self.engine = engine
         self.running = True
-        self.devices = []
-        self.esc_press_time = None
+        self.devices: List[Any] = []
+        self.esc_press_time: Optional[float] = None
         self.rctrl_pressed = False  # Rechte STRG für Host-Info Kombi
 
     def find_keyboards(self) -> List[InputDevice]:
@@ -2722,14 +3238,14 @@ class InputHandler:
 
             # TEST: Leertaste löst Test-Supernova aus
             elif keycode == ecodes.KEY_SPACE and self.config.effect == "checkmk":
-                if hasattr(self.engine, 'checkmk') and self.engine.checkmk:
+                if hasattr(self.engine, "checkmk") and self.engine.checkmk:
                     # Simuliere Supernova für ersten Host
                     if self.engine.checkmk.hosts:
-                        test_host = self.engine.checkmk.hosts[0]['name']
+                        test_host = self.engine.checkmk.hosts[0]["name"]
                         self.engine.checkmk.supernovas[test_host] = {
-                            'start': time.time(),
-                            'prev_state': 0,  # War grün
-                            'priority': 0  # Wichtigster
+                            "start": time.time(),
+                            "prev_state": 0,  # War grün
+                            "priority": 0,  # Wichtigster
                         }
                         print(f"💥 TEST-SUPERNOVA: {test_host}")
 
@@ -2756,13 +3272,23 @@ class InputHandler:
             # RSTRG = Hostlist-GUI öffnen (nur im CheckMK-Modus)
             if keycode == ecodes.KEY_RIGHTCTRL and self.config.effect == "checkmk":
                 import os
+
                 # Prüfen ob GUI schon läuft
-                result = subprocess.run(['pgrep', '-f', 'hostlist_gui.py'], capture_output=True)
+                result = subprocess.run(
+                    ["pgrep", "-f", "hostlist_gui.py"], capture_output=True
+                )
                 if result.returncode != 0:  # Nicht gefunden = starten
-                    subprocess.Popen([
-                        sys.executable,
-                        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hostlist_gui.py')
-                    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.Popen(
+                        [
+                            sys.executable,
+                            os.path.join(
+                                os.path.dirname(os.path.abspath(__file__)),
+                                "hostlist_gui.py",
+                            ),
+                        ],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                 self.rctrl_pressed = True
 
             # Reaktiver Effekt: LED aufleuchten lassen
@@ -2773,8 +3299,8 @@ class InputHandler:
                 # RSTRG + Taste = zum Host in GUI springen
                 if self.rctrl_pressed and self.config.effect == "checkmk":
                     if led_index in self.engine.led_to_host:
-                        host_idx = self.engine.led_to_host[led_index]['idx']
-                        with open('/tmp/hostlist_jump.txt', 'w') as f:
+                        host_idx = self.engine.led_to_host[led_index]["idx"]
+                        with open("/tmp/hostlist_jump.txt", "w") as f:
                             f.write(str(host_idx))
 
         else:  # Key released
@@ -2807,7 +3333,7 @@ class InputHandler:
 
         # Lese von allen Geräten gleichzeitig mit select
         try:
-            fd_to_device = {dev.fd: dev for dev in self.devices}
+            {dev.fd: dev for dev in self.devices}
 
             while self.running:
                 # Warte auf Events von allen Geräten
@@ -2832,6 +3358,7 @@ class InputHandler:
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def print_banner():
     print("""
@@ -2879,7 +3406,7 @@ def main():
     # Direct Mode aktivieren
     try:
         keyboard.set_mode("Direct")
-    except:
+    except Exception:
         print("⚠️ Direct Mode nicht verfügbar, nutze Standard-Modus")
 
     # Audio Analyzer starten
@@ -2914,7 +3441,7 @@ def main():
                 engine.check_theme_file()
                 frame_count = 0
 
-            time.sleep(1/60)  # ~60 FPS
+            time.sleep(1 / 60)  # ~60 FPS
     except KeyboardInterrupt:
         print("\n👋 Unterbrochen")
     finally:
@@ -2923,7 +3450,7 @@ def main():
         checkmk.stop()
         try:
             keyboard.set_mode("Default")
-        except:
+        except Exception:
             pass
         print("✨ Fertig!")
 
