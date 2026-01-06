@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
 """
-🎹 MEGA INTERAKTIVE RGB TASTATUR BELEUCHTUNG
+🎹 AURENET - RGB Keyboard CheckMK Monitor
 Für Roccat Vulcan AIMO
 
 Features:
+- CheckMK Server-Monitoring auf der Tastatur
+- 7 Farbthemes (Default, Cyberpunk, Nord, Fire, Ocean, Matrix, Synthwave)
 - Reaktive Tastendruck-Wellen (Ripple Effect)
 - Rainbow Wave Animation
-- Audio Visualizer (wenn pyaudio installiert)
-- CPU/RAM Monitoring Anzeige
-- Feuer-Effekt
-- Matrix Rain
-- Breathing Effect
-- Custom Farben
+- Audio Visualizer
+- Feuer-Effekt, Matrix Rain, Aurora, Plasma u.v.m.
+- Zonenfarben nach Host-Kategorie
 
 Steuerung:
 - F1-F8: Effekt wählen
-- F9: Geschwindigkeit -
-- F10: Geschwindigkeit +
-- F11: Helligkeit -
-- F12: Helligkeit +
+- F9/F10: Geschwindigkeit -/+
+- F11/F12: Helligkeit -/+
+- RSTRG: Hostliste + Theme-Auswahl (im CheckMK-Modus)
 - ESC (lange drücken): Beenden
 """
 
@@ -63,6 +61,10 @@ except ImportError:
     AUDIO_AVAILABLE = False
 
 
+# Theme-Datei für GUI-Kommunikation
+THEME_FILE = "/tmp/aurenet_theme.txt"
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # KONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -72,8 +74,151 @@ class Config:
     speed: float = 1.0          # Animation Geschwindigkeit (0.1 - 3.0)
     brightness: float = 1.0      # Helligkeit (0.0 - 1.0)
     effect: str = "checkmk"      # Aktiver Effekt - startet mit CheckMK!
+    theme: str = "default"       # Aktives Farbtheme
     base_color: Tuple[int, int, int] = (255, 0, 255)  # Basis-Farbe für manche Effekte
     reactive_color: Tuple[int, int, int] = (255, 255, 255)  # Reaktive Farbe
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FARBTHEMES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@dataclass
+class ColorTheme:
+    """Definiert ein Farbschema für Animationen und Status."""
+    name: str
+    # Animations-Farben (Gradient mit 4-6 Farben)
+    gradient: List[Tuple[int, int, int]]
+    # Reaktive/Highlight-Farbe
+    highlight: Tuple[int, int, int]
+    # Status-Farben (OK, WARN, CRIT, UNKNOWN)
+    status_ok: Tuple[int, int, int] = (46, 204, 113)
+    status_warn: Tuple[int, int, int] = (241, 196, 15)
+    status_crit: Tuple[int, int, int] = (231, 76, 60)
+    status_unknown: Tuple[int, int, int] = (155, 89, 182)
+
+
+# Vordefinierte Themes
+THEMES: Dict[str, ColorTheme] = {
+    "default": ColorTheme(
+        name="Default",
+        gradient=[(255, 0, 128), (255, 100, 0), (255, 255, 0), (0, 255, 128), (0, 128, 255), (128, 0, 255)],
+        highlight=(255, 255, 255),
+    ),
+    "cyberpunk": ColorTheme(
+        name="Cyberpunk",
+        gradient=[(255, 0, 128), (0, 255, 255), (255, 0, 255), (0, 255, 128)],
+        highlight=(255, 0, 255),
+        status_ok=(0, 255, 136),
+        status_warn=(255, 170, 0),
+        status_crit=(255, 0, 68),
+    ),
+    "nord": ColorTheme(
+        name="Nord",
+        gradient=[(94, 129, 172), (136, 192, 208), (163, 190, 140), (235, 203, 139), (191, 97, 106)],
+        highlight=(236, 239, 244),
+        status_ok=(163, 190, 140),
+        status_warn=(235, 203, 139),
+        status_crit=(191, 97, 106),
+        status_unknown=(180, 142, 173),
+    ),
+    "fire": ColorTheme(
+        name="Fire",
+        gradient=[(255, 255, 200), (255, 200, 0), (255, 100, 0), (200, 50, 0), (100, 0, 0)],
+        highlight=(255, 255, 200),
+        status_ok=(255, 200, 0),
+        status_warn=(255, 100, 0),
+        status_crit=(200, 0, 0),
+    ),
+    "ocean": ColorTheme(
+        name="Ocean",
+        gradient=[(0, 50, 100), (0, 100, 150), (0, 150, 200), (50, 200, 220), (150, 230, 255)],
+        highlight=(200, 255, 255),
+        status_ok=(0, 200, 150),
+        status_warn=(255, 200, 100),
+        status_crit=(255, 80, 80),
+    ),
+    "matrix": ColorTheme(
+        name="Matrix",
+        gradient=[(0, 50, 0), (0, 100, 0), (0, 180, 0), (0, 255, 0), (150, 255, 150)],
+        highlight=(200, 255, 200),
+        status_ok=(0, 255, 0),
+        status_warn=(200, 255, 0),
+        status_crit=(255, 50, 50),
+    ),
+    "synthwave": ColorTheme(
+        name="Synthwave",
+        gradient=[(255, 0, 128), (255, 0, 255), (128, 0, 255), (0, 0, 255), (0, 128, 255)],
+        highlight=(255, 100, 200),
+        status_ok=(0, 255, 200),
+        status_warn=(255, 200, 0),
+        status_crit=(255, 0, 100),
+    ),
+}
+
+
+class ColorProvider:
+    """Stellt Theme-basierte Farben für Effekte bereit."""
+
+    def __init__(self, theme_name: str = "default"):
+        self.set_theme(theme_name)
+
+    def set_theme(self, theme_name: str):
+        """Wechselt das aktive Theme."""
+        self.theme = THEMES.get(theme_name, THEMES["default"])
+        self._gradient_len = len(self.theme.gradient)
+
+    def get_gradient_color(self, t: float) -> Tuple[int, int, int]:
+        """
+        Interpoliert durch den Gradient.
+        t: 0.0 bis 1.0 (wird zyklisch behandelt)
+        """
+        t = t % 1.0
+        pos = t * (self._gradient_len - 1)
+        idx = int(pos)
+        frac = pos - idx
+
+        if idx >= self._gradient_len - 1:
+            return self.theme.gradient[-1]
+
+        c1 = self.theme.gradient[idx]
+        c2 = self.theme.gradient[idx + 1]
+
+        return (
+            int(c1[0] + (c2[0] - c1[0]) * frac),
+            int(c1[1] + (c2[1] - c1[1]) * frac),
+            int(c1[2] + (c2[2] - c1[2]) * frac),
+        )
+
+    def get_heat_color(self, heat: float) -> Tuple[int, int, int]:
+        """
+        Mappt Hitze/Intensität (0.0-1.0) auf Gradient.
+        0.0 = erstes Gradient-Element, 1.0 = letztes
+        """
+        heat = max(0.0, min(1.0, heat))
+        return self.get_gradient_color(heat)
+
+    def get_wave_color(self, phase: float, offset: float = 0.0) -> Tuple[int, int, int]:
+        """Farbe für Wellen-Animationen (phase + offset zyklisch)."""
+        return self.get_gradient_color((phase + offset) % 1.0)
+
+    def get_highlight(self) -> Tuple[int, int, int]:
+        """Highlight/Reaktive Farbe."""
+        return self.theme.highlight
+
+    def get_status_color(self, state: int) -> Tuple[int, int, int]:
+        """Status-Farbe für CheckMK-States (0=OK, 1=WARN, 2=CRIT, 3=UNKNOWN)."""
+        if state == 0:
+            return self.theme.status_ok
+        elif state == 1:
+            return self.theme.status_warn
+        elif state == 2:
+            return self.theme.status_crit
+        return self.theme.status_unknown
+
+    def get_gradient_at(self, index: int) -> Tuple[int, int, int]:
+        """Direkter Zugriff auf Gradient-Farbe per Index."""
+        return self.theme.gradient[index % self._gradient_len]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -790,6 +935,9 @@ class EffectEngine:
         self.running = True
         self.led_to_host = {}  # Mapping: LED-Index -> {'name': str, 'state': int}
 
+        # ColorProvider für Theme-basierte Farben
+        self.colors = ColorProvider(config.theme)
+
         # LED-Positionen berechnen
         self.led_positions = {}
         for i in range(num_leds):
@@ -806,6 +954,38 @@ class EffectEngine:
     def get_elapsed(self) -> float:
         """Gibt die vergangene Zeit zurück."""
         return (time.time() - self.start_time) * self.config.speed
+
+    def set_theme(self, theme_name: str):
+        """Wechselt das Farbtheme."""
+        if theme_name in THEMES:
+            self.config.theme = theme_name
+            self.colors.set_theme(theme_name)
+            print(f"🎨 Theme: {THEMES[theme_name].name}")
+            return True
+        return False
+
+    def next_theme(self):
+        """Wechselt zum nächsten Theme."""
+        theme_list = list(THEMES.keys())
+        try:
+            idx = theme_list.index(self.config.theme)
+            next_idx = (idx + 1) % len(theme_list)
+        except ValueError:
+            next_idx = 0
+        self.set_theme(theme_list[next_idx])
+
+    def check_theme_file(self):
+        """Prüft Theme-Datei auf Änderungen (von GUI gesetzt)."""
+        import os
+        if not os.path.exists(THEME_FILE):
+            return
+        try:
+            with open(THEME_FILE, 'r') as f:
+                theme = f.read().strip()
+            if theme and theme in THEMES and theme != self.config.theme:
+                self.set_theme(theme)
+        except Exception as e:
+            print(f"Theme check error: {e}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Rainbow Wave
@@ -830,8 +1010,10 @@ class EffectEngine:
     def effect_reactive(self) -> List[RGBColor]:
         """Reaktive Wellen bei Tastendruck."""
         now = time.time()
-        base = self.config.base_color
-        colors = [apply_brightness(base, self.config.brightness * 0.1)
+        # Theme: Dunkle Basisfarbe vom Gradient-Start
+        base = self.colors.get_gradient_at(0)
+        base_dim = (base[0] // 10, base[1] // 10, base[2] // 10)
+        colors = [apply_brightness(base_dim, self.config.brightness)
                   for _ in range(self.num_leds)]
 
         # Alte Tastendrücke entfernen
@@ -857,7 +1039,8 @@ class EffectEngine:
                 ring_intensity *= fade
 
                 if ring_intensity > 0:
-                    reactive = self.config.reactive_color
+                    # Theme: Highlight-Farbe für Reaktion
+                    reactive = self.colors.get_highlight()
                     current = (colors[i].red, colors[i].green, colors[i].blue)
                     blended = blend_colors(current, reactive, ring_intensity)
                     colors[i] = apply_brightness(blended, self.config.brightness)
@@ -868,7 +1051,7 @@ class EffectEngine:
     # Fire Effect
     # ─────────────────────────────────────────────────────────────────────────
     def effect_fire(self) -> List[RGBColor]:
-        """Feuer-Effekt von unten nach oben."""
+        """Feuer-Effekt von unten nach oben (Theme-basiert)."""
         elapsed = self.get_elapsed()
         colors = []
 
@@ -884,15 +1067,8 @@ class EffectEngine:
 
             heat = base_heat * noise * flicker
 
-            # Farbe von Gelb -> Orange -> Rot -> Dunkelrot
-            if heat > 0.8:
-                rgb = blend_colors((255, 200, 0), (255, 100, 0), (heat - 0.8) / 0.2)
-            elif heat > 0.5:
-                rgb = blend_colors((255, 100, 0), (200, 50, 0), (heat - 0.5) / 0.3)
-            elif heat > 0.2:
-                rgb = blend_colors((200, 50, 0), (100, 0, 0), (heat - 0.2) / 0.3)
-            else:
-                rgb = blend_colors((100, 0, 0), (20, 0, 0), heat / 0.2)
+            # Theme: Gradient für Hitze (0=kalt/dunkel, 1=heiß/hell)
+            rgb = self.colors.get_heat_color(heat)
 
             colors.append(apply_brightness(rgb, self.config.brightness * heat))
 
@@ -902,9 +1078,11 @@ class EffectEngine:
     # Matrix Rain
     # ─────────────────────────────────────────────────────────────────────────
     def effect_matrix(self) -> List[RGBColor]:
-        """Matrix-Style fallender Code."""
+        """Matrix-Style fallender Code (Theme-basiert)."""
         elapsed = self.get_elapsed()
         colors = []
+        # Theme: Primärfarbe für Matrix-Regen
+        primary = self.colors.get_gradient_at(2)  # Mittlere Gradient-Farbe
 
         for i in range(self.num_leds):
             pos = self.led_positions.get(i, (0, 0))
@@ -925,8 +1103,10 @@ class EffectEngine:
             if random.random() < 0.02:
                 intensity = min(1, intensity + 0.5)
 
-            green = int(255 * intensity)
-            rgb = (0, green, int(green * 0.3))
+            # Theme: Farbe mit Intensität skalieren
+            rgb = (int(primary[0] * intensity),
+                   int(primary[1] * intensity),
+                   int(primary[2] * intensity))
             colors.append(apply_brightness(rgb, self.config.brightness))
 
         return colors
@@ -935,14 +1115,15 @@ class EffectEngine:
     # Breathing
     # ─────────────────────────────────────────────────────────────────────────
     def effect_breathing(self) -> List[RGBColor]:
-        """Sanftes Atmen in Basis-Farbe."""
+        """Sanftes Atmen mit Theme-Farbe."""
         elapsed = self.get_elapsed()
 
         # Sinuswelle für sanftes Ein- und Ausatmen
         breath = (math.sin(elapsed * 2) + 1) / 2  # 0 bis 1
         breath = breath ** 2  # Etwas mehr Zeit im dunklen Bereich
 
-        rgb = self.config.base_color
+        # Theme: Durch Gradient atmen
+        rgb = self.colors.get_gradient_color(breath * 0.5)  # Nur halber Gradient
         colors = [apply_brightness(rgb, self.config.brightness * breath * 0.9 + 0.1)
                   for _ in range(self.num_leds)]
 
@@ -1470,7 +1651,7 @@ class EffectEngine:
     # ═══════════════════════════════════════════════════════════════════════════
 
     def effect_aurora(self) -> List[RGBColor]:
-        """Aurora Borealis - Nordlichter."""
+        """Aurora Borealis - Nordlichter (Theme-basiert)."""
         elapsed = self.get_elapsed()
         colors = []
 
@@ -1482,17 +1663,9 @@ class EffectEngine:
             wave2 = math.sin(elapsed * 0.2 + pos[0] * 0.1 + 2) * 0.5 + 0.5
             wave3 = math.sin(elapsed * 0.4 + pos[1] * 0.2) * 0.5 + 0.5
 
-            # Aurora-Farben: Grün, Türkis, Lila, Pink
+            # Theme: Wellen durch Gradient
             combined = (wave1 + wave2 + wave3) / 3
-
-            if combined < 0.25:
-                rgb = blend_colors((0, 80, 40), (0, 180, 120), combined * 4)
-            elif combined < 0.5:
-                rgb = blend_colors((0, 180, 120), (100, 200, 255), (combined - 0.25) * 4)
-            elif combined < 0.75:
-                rgb = blend_colors((100, 200, 255), (150, 100, 200), (combined - 0.5) * 4)
-            else:
-                rgb = blend_colors((150, 100, 200), (200, 50, 150), (combined - 0.75) * 4)
+            rgb = self.colors.get_gradient_color(combined)
 
             # Vertikaler Fade (unten dunkler)
             fade = 0.3 + (1 - pos[1] / 6) * 0.7
@@ -1751,23 +1924,26 @@ class EffectEngine:
             if name in self.checkmk.supernovas:
                 continue  # Wird später behandelt
 
-            # Normale Farben - mit Zonen!
+            # Normale Farben - Theme-basiert!
             if state == 0:
-                # OK = Zonenfarbe (statisch)
-                zone_color = self.checkmk._get_zone_color(name)
-                rgb = (int(zone_color[0] * 0.85), int(zone_color[1] * 0.85), int(zone_color[2] * 0.85))
+                # OK = Theme-Farbe (statisch)
+                status_color = self.colors.get_status_color(0)
+                rgb = (int(status_color[0] * 0.85), int(status_color[1] * 0.85), int(status_color[2] * 0.85))
             elif state == 1:
-                # WARN = Gelb (pulsierend)
+                # WARN = Theme-Farbe (pulsierend)
                 pulse = 0.3 + abs(math.sin(elapsed * 3)) * 0.7
-                rgb = (int(255 * pulse), int(180 * pulse), 0)
+                status_color = self.colors.get_status_color(1)
+                rgb = (int(status_color[0] * pulse), int(status_color[1] * pulse), int(status_color[2] * pulse))
             elif state == 2:
-                # CRIT = Rot (schnell pulsierend)
+                # CRIT = Theme-Farbe (schnell pulsierend)
                 pulse = 0.2 + abs(math.sin(elapsed * 5)) * 0.8
-                rgb = (int(255 * pulse), 0, 0)
+                status_color = self.colors.get_status_color(2)
+                rgb = (int(status_color[0] * pulse), int(status_color[1] * pulse), int(status_color[2] * pulse))
             else:
-                # UNKNOWN = Lila (pulsierend)
+                # UNKNOWN = Theme-Farbe (pulsierend)
                 pulse = 0.3 + abs(math.sin(elapsed * 2.5)) * 0.7
-                rgb = (int(180 * pulse), int(50 * pulse), int(255 * pulse))
+                status_color = self.colors.get_status_color(3)
+                rgb = (int(status_color[0] * pulse), int(status_color[1] * pulse), int(status_color[2] * pulse))
 
             colors[led] = apply_brightness(rgb, self.config.brightness)
 
@@ -2638,10 +2814,18 @@ def main():
     print("\n🚀 CheckMK Monitoring aktiv! F1-F6 für andere Effekte.\n")
 
     # Haupt-Animations-Loop
+    frame_count = 0
     try:
         while input_handler.running:
             colors = engine.get_effect_colors()
             keyboard.set_colors(colors)
+
+            # Theme-Datei alle 30 Frames prüfen (~0.5 Sek)
+            frame_count += 1
+            if frame_count >= 30:
+                engine.check_theme_file()
+                frame_count = 0
+
             time.sleep(1/60)  # ~60 FPS
     except KeyboardInterrupt:
         print("\n👋 Unterbrochen")

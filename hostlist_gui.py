@@ -5,13 +5,25 @@ import sys
 import json
 import os
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QLabel,
-    QScrollArea, QFrame
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QScrollArea, QFrame, QPushButton
 )
 from PyQt6.QtCore import Qt, QTimer
 
 HOSTS_FILE = "/tmp/checkmk_hosts.json"
 JUMP_FILE = "/tmp/hostlist_jump.txt"
+THEME_FILE = "/tmp/aurenet_theme.txt"
+
+THEMES = ["default", "cyberpunk", "nord", "fire", "ocean", "matrix", "synthwave"]
+THEME_COLORS = {
+    "default": "#ff0080",
+    "cyberpunk": "#00ffff",
+    "nord": "#88c0d0",
+    "fire": "#ff6400",
+    "ocean": "#0096c8",
+    "matrix": "#00ff00",
+    "synthwave": "#ff00ff",
+}
 
 STATE_COLORS = {
     0: "#2ecc71",
@@ -40,7 +52,9 @@ class HostListWindow(QWidget):
         self.host_labels = {}
         self.highlighted_idx = None
         self.scroll = None
-        
+        self.current_theme = "default"
+        self.theme_buttons = {}
+
         self.setWindowTitle("CheckMK Hosts")
         self.setWindowFlags(
             Qt.WindowType.WindowStaysOnTopHint |
@@ -50,17 +64,18 @@ class HostListWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setup_ui()
         self.load_hosts()
-        
+        self.load_current_theme()
+
         # Refresh timer
         self.timer = QTimer()
         self.timer.timeout.connect(self.load_hosts)
         self.timer.start(5000)
-        
+
         # Jump check timer (schneller)
         self.jump_timer = QTimer()
         self.jump_timer.timeout.connect(self.check_jump)
         self.jump_timer.start(100)
-        
+
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def setup_ui(self):
@@ -78,10 +93,44 @@ class HostListWindow(QWidget):
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(15, 15, 15, 15)
 
+        # Header mit Titel
         title = QLabel("CheckMK Hosts")
         title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
         container_layout.addWidget(title)
 
+        # Theme-Buttons
+        theme_frame = QFrame()
+        theme_frame.setStyleSheet("QFrame { background: transparent; border: none; }")
+        theme_layout = QHBoxLayout(theme_frame)
+        theme_layout.setContentsMargins(0, 5, 0, 10)
+        theme_layout.setSpacing(4)
+
+        theme_label = QLabel("Theme:")
+        theme_label.setStyleSheet("color: #888; font-size: 11px;")
+        theme_layout.addWidget(theme_label)
+
+        for theme in THEMES:
+            btn = QPushButton()
+            btn.setFixedSize(24, 24)
+            btn.setToolTip(theme.capitalize())
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {THEME_COLORS[theme]};
+                    border: 2px solid #333;
+                    border-radius: 12px;
+                }}
+                QPushButton:hover {{
+                    border: 2px solid #fff;
+                }}
+            """)
+            btn.clicked.connect(lambda checked, t=theme: self.set_theme(t))
+            theme_layout.addWidget(btn)
+            self.theme_buttons[theme] = btn
+
+        theme_layout.addStretch()
+        container_layout.addWidget(theme_frame)
+
+        # Hosts ScrollArea
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setStyleSheet("""
@@ -101,10 +150,10 @@ class HostListWindow(QWidget):
         container_layout.addWidget(self.status_label)
 
         layout.addWidget(container)
-        self.setFixedSize(400, 500)
+        self.setFixedSize(400, 520)
 
         screen = QApplication.primaryScreen().geometry()
-        self.move(screen.width() - 420, screen.height() - 550)
+        self.move(screen.width() - 420, screen.height() - 570)
 
     def load_hosts(self):
         self.host_labels = {}
@@ -200,14 +249,55 @@ class HostListWindow(QWidget):
             label.setStyleSheet(f"color: {color}; font-size: 12px; font-family: monospace;")
             self.highlighted_idx = None
 
+    def load_current_theme(self):
+        """Liest aktuelles Theme aus Datei."""
+        if os.path.exists(THEME_FILE):
+            try:
+                with open(THEME_FILE, 'r') as f:
+                    theme = f.read().strip()
+                    if theme in THEMES:
+                        self.current_theme = theme
+            except:
+                pass
+        self.update_theme_buttons()
+
+    def set_theme(self, theme):
+        """Setzt neues Theme und schreibt es in Datei."""
+        self.current_theme = theme
+        try:
+            with open(THEME_FILE, 'w') as f:
+                f.write(theme)
+        except:
+            pass
+        self.update_theme_buttons()
+
+    def update_theme_buttons(self):
+        """Aktualisiert Button-Styles für aktives Theme."""
+        for theme, btn in self.theme_buttons.items():
+            if theme == self.current_theme:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {THEME_COLORS[theme]};
+                        border: 2px solid #fff;
+                        border-radius: 12px;
+                    }}
+                """)
+            else:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {THEME_COLORS[theme]};
+                        border: 2px solid #333;
+                        border-radius: 12px;
+                    }}
+                    QPushButton:hover {{
+                        border: 2px solid #888;
+                    }}
+                """)
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
             self.close()
         super().keyPressEvent(event)
-
-    def focusOutEvent(self, event):
-        self.close()
-        super().focusOutEvent(event)
 
 
 def main():
