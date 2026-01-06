@@ -365,6 +365,9 @@ class CheckMKMonitor:
         self.blackholes = {}   # Host verschwindet (mit key_index für Position)
         self.spawns = {}       # Neuer Host erscheint
         self.known_hosts = set()  # Alle bekannten Hostnamen
+        # Celebration: Alle Hosts OK!
+        self.celebration = None  # {'start': timestamp} wenn aktiv
+        self.had_problems = False  # Gab es vorher Probleme?
 
     def start(self):
         """Startet den Monitoring-Thread."""
@@ -441,6 +444,11 @@ class CheckMKMonitor:
                             'priority': 0
                         }
                         print(f"✨ TEST-SPAWN: {test_host}")
+
+                if os.path.exists('/tmp/trigger_celebration'):
+                    os.remove('/tmp/trigger_celebration')
+                    self.celebration = {'start': time.time()}
+                    print("🎉 TEST-CELEBRATION: Party time!")
 
                 if os.path.exists('/tmp/trigger_hostlist'):
                     os.remove('/tmp/trigger_hostlist')
@@ -574,6 +582,24 @@ class CheckMKMonitor:
 
         self.hosts = new_hosts
         self.last_update = now
+
+        # CELEBRATION: Alle Hosts OK nach vorherigen Problemen?
+        if new_hosts:
+            all_ok = all(h['state'] == 0 for h in new_hosts)
+            has_problems = any(h['state'] > 0 for h in new_hosts)
+
+            if has_problems:
+                self.had_problems = True
+
+            # Celebration starten wenn: alle OK UND es gab vorher Probleme UND keine Celebration läuft
+            if all_ok and self.had_problems and self.celebration is None:
+                self.celebration = {'start': now}
+                self.had_problems = False
+                print("🎉 CELEBRATION: Alle Hosts sind OK!")
+
+            # Celebration aufräumen (nach 8 Sekunden)
+            if self.celebration and now - self.celebration['start'] > 8:
+                self.celebration = None
 
         # Hosts als JSON exportieren für GUI
         try:
@@ -2497,6 +2523,68 @@ class EffectEngine:
                             current = (colors[other_led].red, colors[other_led].green, colors[other_led].blue)
                             glow_blend = blend_colors(current, final_color, glow_intensity)
                             colors[other_led] = apply_brightness(glow_blend, self.config.brightness)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # 🎉 CELEBRATION ANIMATION (Alle Hosts OK!)
+        # ═══════════════════════════════════════════════════════════════════
+        if self.checkmk.celebration:
+            age = now - self.checkmk.celebration['start']
+
+            # Phase 1 (0-2s): Grüne Welle von Mitte nach außen
+            if age < 2.0:
+                center_x, center_y = 10, 2.5
+                wave_radius = age * 8
+                wave_width = 3.0
+
+                for i in range(self.num_leds):
+                    pos = self.led_positions.get(i, (0, 0))
+                    dist = math.sqrt((pos[0] - center_x)**2 + (pos[1] - center_y)**2)
+                    ring_dist = abs(dist - wave_radius)
+
+                    if ring_dist < wave_width:
+                        intensity = 1 - ring_dist / wave_width
+                        # Grün -> Türkis -> Weiß
+                        green = self.colors.get_status_color(0)
+                        white = (255, 255, 255)
+                        rgb = blend_colors(green, white, intensity * 0.5)
+                        colors[i] = apply_brightness(rgb, self.config.brightness * intensity)
+
+            # Phase 2 (2-5s): Regenbogen-Feuerwerk
+            elif age < 5.0:
+                phase_age = age - 2.0
+                for i in range(self.num_leds):
+                    pos = self.led_positions.get(i, (0, 0))
+                    # Mehrere explodierende Punkte
+                    intensity = 0
+                    for spark in range(5):
+                        spark_x = 5 + spark * 4
+                        spark_y = 1 + (spark % 3) * 1.5
+                        spark_radius = phase_age * 6 + spark * 0.5
+                        dist = math.sqrt((pos[0] - spark_x)**2 + (pos[1] - spark_y)**2)
+                        if dist < spark_radius and dist > spark_radius - 2:
+                            intensity = max(intensity, (1 - (spark_radius - dist) / 2) * (1 - phase_age / 3))
+
+                    if intensity > 0:
+                        hue = (pos[0] / 20 + phase_age * 0.5) % 1.0
+                        rgb = hsv_to_rgb(hue, 1.0, 1.0)
+                        current = (colors[i].red, colors[i].green, colors[i].blue)
+                        blended = blend_colors(current, rgb, intensity)
+                        colors[i] = apply_brightness(blended, self.config.brightness)
+
+            # Phase 3 (5-8s): Sanftes Grün-Pulsieren (Übergang zurück)
+            else:
+                phase_age = age - 5.0
+                fade = 1 - phase_age / 3  # Ausblenden
+                pulse = 0.7 + math.sin(phase_age * 4) * 0.3
+                green = self.colors.get_status_color(0)
+                rgb = (int(green[0] * pulse * fade),
+                       int(green[1] * pulse * fade),
+                       int(green[2] * pulse * fade))
+
+                for i in range(self.num_leds):
+                    current = (colors[i].red, colors[i].green, colors[i].blue)
+                    blended = blend_colors(current, rgb, fade * 0.5)
+                    colors[i] = apply_brightness(blended, self.config.brightness)
 
         # ═══════════════════════════════════════════════════════════════════
         # ESC-Taste: Gesamtstatus
