@@ -1211,10 +1211,10 @@ class EffectEngine:
     ) -> List[RGBColor]:
         """
         Wendet die Task Complete Animation an:
-        1. Fade zu Orange (1s)
-        2. Blinken 2x Orange/Vorherige (0.8s)
-        3. Fade zurück zu Vorherige (1s)
-        Total: ~2.8s
+        1. Fade zu Orange (1.25s)
+        2. Blinken 2x Orange/Vorherige (1s)
+        3. Fade zurück zu Vorherige (1.25s)
+        Total: ~3.5s
         """
         if not self.task_complete_active:
             return colors
@@ -1223,19 +1223,19 @@ class EffectEngine:
         orange = (255, 140, 0)
         result = []
 
-        # Phase 1 (0-1s): Fade zu Orange
-        if age < 1.0:
-            t = age / 1.0
+        # Phase 1 (0-1.25s): Fade zu Orange
+        if age < 1.25:
+            t = age / 1.25
             for i, color in enumerate(colors):
                 saved = self.task_complete_saved_colors[i] if i < len(self.task_complete_saved_colors) else color
                 saved_rgb = (saved.red, saved.green, saved.blue)
                 blended = blend_colors(saved_rgb, orange, t)
                 result.append(apply_brightness(blended, self.config.brightness))
 
-        # Phase 2 (1-1.8s): Blinken 2x (je 0.4s = 2 Zyklen)
-        elif age < 1.8:
-            t = (age - 1.0) / 0.8
-            blink_cycle = (t * 2) % 1.0  # 2 Zyklen in 0.8s
+        # Phase 2 (1.25-2.25s): Blinken 2x (je 0.5s = 2 Zyklen)
+        elif age < 2.25:
+            t = (age - 1.25) / 1.0
+            blink_cycle = (t * 2) % 1.0  # 2 Zyklen in 1s
 
             # 0-0.5 = orange, 0.5-1.0 = vorherige
             if blink_cycle < 0.5:
@@ -1248,9 +1248,9 @@ class EffectEngine:
                     saved = self.task_complete_saved_colors[i] if i < len(self.task_complete_saved_colors) else color
                     result.append(apply_brightness((saved.red, saved.green, saved.blue), self.config.brightness))
 
-        # Phase 3 (1.8-2.8s): Fade zurück zu vorheriger Farbe
-        elif age < 2.8:
-            t = (age - 1.8) / 1.0
+        # Phase 3 (2.25-3.5s): Fade zurück zu vorheriger Farbe
+        elif age < 3.5:
+            t = (age - 2.25) / 1.25
             for i, color in enumerate(colors):
                 saved = self.task_complete_saved_colors[i] if i < len(self.task_complete_saved_colors) else color
                 saved_rgb = (saved.red, saved.green, saved.blue)
