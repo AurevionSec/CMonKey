@@ -30,6 +30,34 @@ Each key represents a host. Colors show status at a glance. Animations alert you
 | Host disappears |  Blackhole | Implodes to darkness |
 | New host |  Spawn | Sparkle effect |
 
+## 🤖 Developer Notifications
+
+Visual feedback for development workflows:
+
+| Trigger | Animation | Color | Usage |
+|---------|-----------|-------|-------|
+| Claude Code Task Complete | 🟠 Orange Fade + Blink | Orange | `./trigger_task_complete.sh` |
+| Codex Review Complete | 🔵 White-Blue Fade + Blink | Cyan | `./trigger_codex_complete.sh` |
+
+**Animation Sequence:**
+1. Fade from current colors to notification color (1.25s)
+2. Blink 2x between notification color and previous (1s)
+3. Fade back to previous colors (1.25s)
+4. Total duration: ~3.5 seconds
+
+**Integration Examples:**
+
+```bash
+# After task completion
+./trigger_task_complete.sh
+
+# After code review
+codex review --uncommitted && ./trigger_codex_complete.sh
+
+# Hook into CI/CD
+echo "✅" > /tmp/aurenet_task_complete.txt
+```
+
 ## Zone Colors
 
 Hosts are colored by category:
@@ -45,6 +73,17 @@ Hosts are colored by category:
 | Mobile | 🟠 Orange | phone, iphone, android |
 | Cameras | 🔴 Red-Orange | cam, ring, security |
 | Smart Home | ⬜ Warm White | home, assistant |
+
+## 📁 Project Structure
+
+```
+aurenet/
+├── rgb_keyboard.py              # Main application
+├── trigger_task_complete.sh     # Claude Code completion trigger
+├── trigger_codex_complete.sh    # Codex review completion trigger
+├── requirements.txt             # Python dependencies
+└── README.md                    # This file
+```
 
 ## Requirements
 
@@ -65,7 +104,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install openrgb-python requests evdev PyQt6
+pip install -r requirements.txt
+# Or manually:
+# pip install openrgb-python requests evdev
 
 # Start OpenRGB server (in another terminal)
 openrgb --server
