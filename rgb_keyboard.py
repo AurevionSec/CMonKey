@@ -119,6 +119,9 @@ except ImportError:
 # Theme-Datei für GUI-Kommunikation
 THEME_FILE = "/tmp/aurenet_theme.txt"
 
+# Task Complete Trigger-Datei (für Claude Code)
+TASK_COMPLETE_FILE = "/tmp/aurenet_task_complete.txt"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # KONFIGURATION
@@ -1118,6 +1121,11 @@ class EffectEngine:
         # ColorProvider für Theme-basierte Farben
         self.colors = ColorProvider(config.theme)
 
+        # Task Complete Animation State
+        self.task_complete_active = False
+        self.task_complete_start = 0.0
+        self.task_complete_saved_colors: List[RGBColor] = []
+
         # LED-Positionen berechnen
         self.led_positions = {}
         for i in range(num_leds):
@@ -1167,6 +1175,96 @@ class EffectEngine:
                 self.set_theme(theme)
         except Exception as e:
             print(f"Theme check error: {e}")
+
+    def check_task_complete_trigger(self):
+        """Prüft Task Complete Trigger-Datei (von Claude Code gesetzt)."""
+        import os
+
+        if not os.path.exists(TASK_COMPLETE_FILE):
+            return
+
+        try:
+            # Trigger wurde gesetzt - Animation starten
+            with open(TASK_COMPLETE_FILE, "r") as f:
+                trigger = f.read().strip()
+
+            if trigger and not self.task_complete_active:
+                print("✅ Claude Code Task Complete - Animation gestartet!")
+                self.start_task_complete_animation()
+
+            # Trigger-Datei löschen
+            os.remove(TASK_COMPLETE_FILE)
+        except Exception as e:
+            print(f"Task complete check error: {e}")
+
+    def start_task_complete_animation(self):
+        """Startet die Task Complete Animation."""
+        if not self.task_complete_active:
+            self.task_complete_active = True
+            self.task_complete_start = time.time()
+            # Aktuelle Farben speichern
+            self.task_complete_saved_colors = self.get_effect_colors()
+            print("🎨 Task Complete Animation: Orange Fade gestartet")
+
+    def apply_task_complete_animation(
+        self, colors: List[RGBColor]
+    ) -> List[RGBColor]:
+        """
+        Wendet die Task Complete Animation an:
+        1. Fade zu Orange (1s)
+        2. Blinken 2x Orange/Vorherige (0.8s)
+        3. Fade zurück zu Vorherige (1s)
+        Total: ~2.8s
+        """
+        if not self.task_complete_active:
+            return colors
+
+        age = time.time() - self.task_complete_start
+        orange = (255, 140, 0)
+        result = []
+
+        # Phase 1 (0-1s): Fade zu Orange
+        if age < 1.0:
+            t = age / 1.0
+            for i, color in enumerate(colors):
+                saved = self.task_complete_saved_colors[i] if i < len(self.task_complete_saved_colors) else color
+                saved_rgb = (saved.red, saved.green, saved.blue)
+                blended = blend_colors(saved_rgb, orange, t)
+                result.append(apply_brightness(blended, self.config.brightness))
+
+        # Phase 2 (1-1.8s): Blinken 2x (je 0.4s = 2 Zyklen)
+        elif age < 1.8:
+            t = (age - 1.0) / 0.8
+            blink_cycle = (t * 2) % 1.0  # 2 Zyklen in 0.8s
+
+            # 0-0.5 = orange, 0.5-1.0 = vorherige
+            if blink_cycle < 0.5:
+                # Orange
+                for _ in range(len(colors)):
+                    result.append(apply_brightness(orange, self.config.brightness))
+            else:
+                # Vorherige Farbe
+                for i, color in enumerate(colors):
+                    saved = self.task_complete_saved_colors[i] if i < len(self.task_complete_saved_colors) else color
+                    result.append(apply_brightness((saved.red, saved.green, saved.blue), self.config.brightness))
+
+        # Phase 3 (1.8-2.8s): Fade zurück zu vorheriger Farbe
+        elif age < 2.8:
+            t = (age - 1.8) / 1.0
+            for i, color in enumerate(colors):
+                saved = self.task_complete_saved_colors[i] if i < len(self.task_complete_saved_colors) else color
+                saved_rgb = (saved.red, saved.green, saved.blue)
+                blended = blend_colors(orange, saved_rgb, t)
+                result.append(apply_brightness(blended, self.config.brightness))
+
+        # Animation beendet
+        else:
+            self.task_complete_active = False
+            self.task_complete_saved_colors = []
+            print("✨ Task Complete Animation abgeschlossen")
+            return colors
+
+        return result
 
     # ─────────────────────────────────────────────────────────────────────────
     # Rainbow Wave
@@ -3163,7 +3261,13 @@ class EffectEngine:
         }
 
         effect_func = effects.get(self.config.effect, self.effect_explosion)
-        return effect_func()
+        colors = effect_func()
+
+        # Task Complete Animation overlay (überschreibt alle Effekte)
+        if self.task_complete_active:
+            colors = self.apply_task_complete_animation(colors)
+
+        return colors
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3485,10 +3589,11 @@ def main():
             colors = engine.get_effect_colors()
             keyboard.set_colors(colors)
 
-            # Theme-Datei alle 30 Frames prüfen (~0.5 Sek)
+            # Theme- und Task-Complete-Datei alle 30 Frames prüfen (~0.5 Sek)
             frame_count += 1
             if frame_count >= 30:
                 engine.check_theme_file()
+                engine.check_task_complete_trigger()
                 frame_count = 0
 
             time.sleep(1 / 60)  # ~60 FPS
