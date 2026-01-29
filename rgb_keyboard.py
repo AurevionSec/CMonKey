@@ -32,6 +32,56 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEPENDENCY CHECK - Prüft alle benötigten Module beim Start
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def check_dependencies() -> None:
+    """
+    Prüft, ob alle kritischen Dependencies installiert sind.
+    Bei fehlenden Modulen wird eine aussagekräftige Fehlermeldung ausgegeben.
+    """
+    missing_modules = []
+
+    # Kritische Dependencies (ohne diese läuft das Script nicht)
+    critical_deps = {
+        'openrgb': 'openrgb-python',
+        'evdev': 'evdev',
+        'requests': 'requests',
+    }
+
+    for module_name, package_name in critical_deps.items():
+        try:
+            __import__(module_name)
+        except ImportError:
+            missing_modules.append(package_name)
+
+    if missing_modules:
+        print("╔════════════════════════════════════════════════════════════════╗", file=sys.stderr)
+        print("║  ❌ AURENET - Fehlende Dependencies                           ║", file=sys.stderr)
+        print("╚════════════════════════════════════════════════════════════════╝", file=sys.stderr)
+        print(file=sys.stderr)
+        print("⚠️  Folgende Module fehlen:", file=sys.stderr)
+        for pkg in missing_modules:
+            print(f"   • {pkg}", file=sys.stderr)
+        print(file=sys.stderr)
+        print("📦 Installation:", file=sys.stderr)
+        print(f"   cd /home/eddy/projekte/aurenet", file=sys.stderr)
+        print(f"   .venv/bin/pip install {' '.join(missing_modules)}", file=sys.stderr)
+        print(file=sys.stderr)
+        print("🔄 Service neu starten:", file=sys.stderr)
+        print("   systemctl --user restart rgb-keyboard.service", file=sys.stderr)
+        print(file=sys.stderr)
+        sys.exit(1)
+
+
+# Dependency-Check durchführen
+check_dependencies()
+
+
+# Jetzt die geprüften Module importieren
 from openrgb import OpenRGBClient
 from openrgb.utils import DeviceType, RGBColor
 
