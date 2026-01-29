@@ -122,6 +122,9 @@ THEME_FILE = "/tmp/aurenet_theme.txt"
 # Task Complete Trigger-Datei (für Claude Code)
 TASK_COMPLETE_FILE = "/tmp/aurenet_task_complete.txt"
 
+# Codex Complete Trigger-Datei (für Codex Review)
+CODEX_COMPLETE_FILE = "/tmp/aurenet_codex_complete.txt"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # KONFIGURATION
@@ -1126,6 +1129,11 @@ class EffectEngine:
         self.task_complete_start = 0.0
         self.task_complete_saved_colors: List[RGBColor] = []
 
+        # Codex Complete Animation State
+        self.codex_complete_active = False
+        self.codex_complete_start = 0.0
+        self.codex_complete_saved_colors: List[RGBColor] = []
+
         # LED-Positionen berechnen
         self.led_positions = {}
         for i in range(num_leds):
@@ -1262,6 +1270,96 @@ class EffectEngine:
             self.task_complete_active = False
             self.task_complete_saved_colors = []
             print("✨ Task Complete Animation abgeschlossen")
+            return colors
+
+        return result
+
+    def check_codex_complete_trigger(self):
+        """Prüft Codex Complete Trigger-Datei (von Codex gesetzt)."""
+        import os
+
+        if not os.path.exists(CODEX_COMPLETE_FILE):
+            return
+
+        try:
+            # Trigger wurde gesetzt - Animation starten
+            with open(CODEX_COMPLETE_FILE, "r") as f:
+                trigger = f.read().strip()
+
+            if trigger and not self.codex_complete_active:
+                print("✅ Codex Review Complete - Animation gestartet!")
+                self.start_codex_complete_animation()
+
+            # Trigger-Datei löschen
+            os.remove(CODEX_COMPLETE_FILE)
+        except Exception as e:
+            print(f"Codex complete check error: {e}")
+
+    def start_codex_complete_animation(self):
+        """Startet die Codex Complete Animation."""
+        if not self.codex_complete_active:
+            self.codex_complete_active = True
+            self.codex_complete_start = time.time()
+            # Aktuelle Farben speichern
+            self.codex_complete_saved_colors = self.get_effect_colors()
+            print("🎨 Codex Complete Animation: Weiß-Blau Fade gestartet")
+
+    def apply_codex_complete_animation(
+        self, colors: List[RGBColor]
+    ) -> List[RGBColor]:
+        """
+        Wendet die Codex Complete Animation an:
+        1. Fade zu Weiß-Blau (1.25s)
+        2. Blinken 2x Weiß-Blau/Vorherige (1s)
+        3. Fade zurück zu Vorherige (1.25s)
+        Total: ~3.5s
+        """
+        if not self.codex_complete_active:
+            return colors
+
+        age = time.time() - self.codex_complete_start
+        white_blue = (180, 220, 255)  # Helles Weiß-Blau
+        result = []
+
+        # Phase 1 (0-1.25s): Fade zu Weiß-Blau
+        if age < 1.25:
+            t = age / 1.25
+            for i, color in enumerate(colors):
+                saved = self.codex_complete_saved_colors[i] if i < len(self.codex_complete_saved_colors) else color
+                saved_rgb = (saved.red, saved.green, saved.blue)
+                blended = blend_colors(saved_rgb, white_blue, t)
+                result.append(apply_brightness(blended, self.config.brightness))
+
+        # Phase 2 (1.25-2.25s): Blinken 2x (je 0.5s = 2 Zyklen)
+        elif age < 2.25:
+            t = (age - 1.25) / 1.0
+            blink_cycle = (t * 2) % 1.0  # 2 Zyklen in 1s
+
+            # 0-0.5 = weiß-blau, 0.5-1.0 = vorherige
+            if blink_cycle < 0.5:
+                # Weiß-Blau
+                for _ in range(len(colors)):
+                    result.append(apply_brightness(white_blue, self.config.brightness))
+            else:
+                # Vorherige Farbe
+                for i, color in enumerate(colors):
+                    saved = self.codex_complete_saved_colors[i] if i < len(self.codex_complete_saved_colors) else color
+                    result.append(apply_brightness((saved.red, saved.green, saved.blue), self.config.brightness))
+
+        # Phase 3 (2.25-3.5s): Fade zurück zu vorheriger Farbe
+        elif age < 3.5:
+            t = (age - 2.25) / 1.25
+            for i, color in enumerate(colors):
+                saved = self.codex_complete_saved_colors[i] if i < len(self.codex_complete_saved_colors) else color
+                saved_rgb = (saved.red, saved.green, saved.blue)
+                blended = blend_colors(white_blue, saved_rgb, t)
+                result.append(apply_brightness(blended, self.config.brightness))
+
+        # Animation beendet
+        else:
+            self.codex_complete_active = False
+            self.codex_complete_saved_colors = []
+            print("✨ Codex Complete Animation abgeschlossen")
             return colors
 
         return result
@@ -3267,6 +3365,10 @@ class EffectEngine:
         if self.task_complete_active:
             colors = self.apply_task_complete_animation(colors)
 
+        # Codex Complete Animation overlay (überschreibt alle Effekte)
+        if self.codex_complete_active:
+            colors = self.apply_codex_complete_animation(colors)
+
         return colors
 
 
@@ -3589,11 +3691,12 @@ def main():
             colors = engine.get_effect_colors()
             keyboard.set_colors(colors)
 
-            # Theme- und Task-Complete-Datei alle 30 Frames prüfen (~0.5 Sek)
+            # Theme-, Task-Complete- und Codex-Complete-Datei alle 30 Frames prüfen (~0.5 Sek)
             frame_count += 1
             if frame_count >= 30:
                 engine.check_theme_file()
                 engine.check_task_complete_trigger()
+                engine.check_codex_complete_trigger()
                 frame_count = 0
 
             time.sleep(1 / 60)  # ~60 FPS
