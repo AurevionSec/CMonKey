@@ -51,6 +51,8 @@ class MockHttpClient:
         params: Optional[Dict[str, Any]] = None,
         timeout: int = 30,
     ) -> Response:
+        import json
+
         # Record call
         self._call_history.append((url, headers or {}, params or {}))
 
@@ -58,7 +60,9 @@ class MockHttpClient:
         if url in self._responses:
             response = Response()
             response.status_code = 200
-            response._content = str(self._responses[url]).encode()
+            # Properly encode as JSON
+            response._content = json.dumps(self._responses[url]).encode()
+            response.encoding = "utf-8"
             return response
 
         # Default response

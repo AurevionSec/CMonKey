@@ -5,6 +5,7 @@ Common types and dataclasses used throughout the application.
 """
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Tuple, List, Optional, Any
 import numpy as np
 
@@ -64,3 +65,27 @@ class HostState:
     state: int  # 0=OK, 1=WARN, 2=CRIT, 3=UNKNOWN
     led_index: int
     zone_color: Tuple[int, int, int]
+    priority: int = 0
+
+
+class AnimationType(Enum):
+    """Types of animations that can be triggered."""
+
+    SUPERNOVA = "supernova"  # Host goes CRITICAL
+    PHOENIX = "phoenix"  # Host recovers to OK
+    WARNING = "warning"  # Host goes to WARNING
+    BLACKHOLE = "blackhole"  # Host disappears
+    SPAWN = "spawn"  # New host appears
+    CELEBRATION = "celebration"  # All hosts OK
+
+
+@dataclass
+class AnimationEvent:
+    """Event data for triggering an animation."""
+
+    type: AnimationType
+    hostname: str
+    start_time: float
+    led_index: int
+    prev_state: Optional[int] = None
+    priority: int = 0
