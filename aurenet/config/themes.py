@@ -130,3 +130,106 @@ def get_theme(name: str) -> ColorTheme:
     if name not in THEMES:
         raise KeyError(f"Unknown theme: {name}. Available themes: {list(THEMES.keys())}")
     return THEMES[name]
+
+
+class ColorProvider:
+    """Provides theme-based colors for effects."""
+
+    def __init__(self, theme_name: str = "default"):
+        self.theme = THEMES.get(theme_name, THEMES["default"])
+        self._gradient_len = len(self.theme.gradient)
+
+    def set_theme(self, theme_name: str):
+        """Switch the active theme."""
+        self.theme = THEMES.get(theme_name, THEMES["default"])
+        self._gradient_len = len(self.theme.gradient)
+
+    def get_gradient_color(self, t: float) -> Tuple[int, int, int]:
+        """
+        Interpolate through the gradient.
+
+        Args:
+            t: Position in gradient (0.0 to 1.0, cyclic)
+
+        Returns:
+            Interpolated RGB color
+        """
+        t = t % 1.0
+        pos = t * (self._gradient_len - 1)
+        idx = int(pos)
+        frac = pos - idx
+
+        if idx >= self._gradient_len - 1:
+            return self.theme.gradient[-1]
+
+        c1 = self.theme.gradient[idx]
+        c2 = self.theme.gradient[idx + 1]
+
+        return (
+            int(c1[0] + (c2[0] - c1[0]) * frac),
+            int(c1[1] + (c2[1] - c1[1]) * frac),
+            int(c1[2] + (c2[2] - c1[2]) * frac),
+        )
+
+    def get_heat_color(self, heat: float) -> Tuple[int, int, int]:
+        """
+        Map heat/intensity (0.0-1.0) to gradient.
+
+        Args:
+            heat: Heat value (0.0 = first gradient color, 1.0 = last)
+
+        Returns:
+            RGB color from gradient
+        """
+        heat = max(0.0, min(1.0, heat))
+        return self.get_gradient_color(heat)
+
+    def get_wave_color(self, phase: float, offset: float = 0.0) -> Tuple[int, int, int]:
+        """
+        Get color for wave animations (phase + offset cyclic).
+
+        Args:
+            phase: Wave phase (0.0 to 1.0)
+            offset: Optional offset to add to phase
+
+        Returns:
+            RGB color from gradient
+        """
+        return self.get_gradient_color((phase + offset) % 1.0)
+
+    def get_highlight(self) -> Tuple[int, int, int]:
+        """Get highlight/reactive color from theme."""
+        return self.theme.highlight
+
+    def get_status_color(self, state: int) -> Tuple[int, int, int]:
+        """
+        Get status color for CheckMK states.
+
+        Args:
+            state: Host state (0=OK, 1=WARN, 2=CRIT, 3=UNKNOWN)
+
+        Returns:
+            RGB color for the status
+        """
+        if state == 0:
+            return self.theme.status_ok
+        elif state == 1:
+            return self.theme.status_warn
+        elif state == 2:
+            return self.theme.status_crit
+        else:
+            return self.theme.status_unknown
+
+    def get_gradient_at(self, index: int) -> Tuple[int, int, int]:
+        """
+        Get specific color from gradient by index.
+
+        Args:
+            index: Index in gradient (0 to len-1)
+
+        Returns:
+            RGB color at that index
+        """
+        if index < 0 or index >= self._gradient_len:
+            return self.theme.gradient[0]
+        return self.theme.gradient[index]
