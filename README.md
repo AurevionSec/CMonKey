@@ -1,10 +1,15 @@
-# 🎹 CMonKey - RGB Keyboard Monitoring
+# 🎹 AURENET - Audi RGB Universal Event Network
 
-**Turn your RGB keyboard into a real-time server monitoring dashboard.**
+**Turn your RGB keyboard into a real-time server monitoring dashboard with visual effects.**
 
-Each key represents a host. Colors show status at a glance. Animations alert you to problems.
+Each key represents a host. Colors show status at a glance. Animations alert you to problems. Multiple effect modes from audio visualization to ambient lighting.
 
 ![Demo](demo.gif)
+
+[![Tests](https://github.com/your-org/aurenet/workflows/Tests/badge.svg)](https://github.com/your-org/aurenet/actions)
+[![Coverage](https://codecov.io/gh/your-org/aurenet/branch/main/graph/badge.svg)](https://codecov.io/gh/your-org/aurenet)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
@@ -78,12 +83,120 @@ Hosts are colored by category:
 
 ```
 aurenet/
-├── rgb_keyboard.py              # Main application
-├── trigger_task_complete.sh     # Claude Code completion trigger
-├── trigger_codex_complete.sh    # Codex review completion trigger
-├── requirements.txt             # Python dependencies
+├── aurenet/                     # Main package
+│   ├── core/                    # Core components
+│   │   ├── events.py           # Event bus system
+│   │   ├── orchestrator.py     # Application coordinator
+│   │   ├── shutdown.py         # Graceful shutdown
+│   │   └── types.py            # Shared types
+│   ├── config/                  # Configuration
+│   │   ├── settings.py         # App settings
+│   │   └── themes.py           # Color themes
+│   ├── input/                   # Keyboard input
+│   │   ├── handler.py          # Input handling
+│   │   └── keyboard_mapping.py # Key mappings
+│   ├── effects/                 # Visual effects
+│   │   ├── base.py             # Effect interface
+│   │   ├── audio/              # Audio visualizers
+│   │   ├── ambient/            # Ambient effects
+│   │   ├── interactive/        # Interactive effects
+│   │   └── monitoring/         # Monitoring effects
+│   ├── monitoring/              # External monitoring
+│   │   ├── base.py             # Provider interface
+│   │   └── checkmk.py          # CheckMK integration
+│   ├── output/                  # LED output
+│   │   ├── renderer.py         # Color rendering
+│   │   └── hardware.py         # OpenRGB interface
+│   └── infrastructure/          # External dependencies
+│       ├── filesystem.py       # File operations
+│       ├── http.py             # HTTP client
+│       └── triggers.py         # Trigger files
+├── tests/                       # Test suite
+│   ├── unit/                   # Unit tests (91 tests)
+│   ├── integration/            # Integration tests
+│   └── fixtures/               # Test fixtures
+├── docs/                        # Documentation
+│   ├── ARCHITECTURE.md         # Architecture overview
+│   └── TESTING.md              # Testing guide
+├── .github/workflows/           # CI/CD
+│   └── test.yml                # GitHub Actions
+├── rgb_keyboard.py              # Main entry point
 └── README.md                    # This file
 ```
+
+## 🏗️ Architecture
+
+AURENET follows **event-driven hexagonal architecture**:
+
+- **Event Bus:** All components communicate via publish-subscribe events
+- **Dependency Injection:** Abstract interfaces, mockable dependencies
+- **Thread Safety:** All shared state protected with locks
+- **Graceful Shutdown:** LIFO shutdown order with error isolation
+
+Key components:
+- **Input Handler:** evdev keyboard monitoring → publishes KEY_PRESSED events
+- **Effect Orchestrator:** Subscribes to events → updates configuration
+- **CheckMK Monitor:** Background thread → polls API → publishes MONITORING_UPDATE
+- **Effect Renderer:** Combines state → renders colors → sends to hardware
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
+
+## 💻 Development
+
+### Setup
+
+```bash
+# Clone repository
+git clone https://github.com/your-org/aurenet.git
+cd aurenet
+
+# Install dependencies
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Run tests
+pytest aurenet/tests/ --cov=aurenet
+
+# Run linter
+ruff check aurenet/
+
+# Run type checker
+mypy aurenet/ --ignore-missing-imports
+```
+
+### Running Tests
+
+```bash
+# All tests
+pytest aurenet/tests/
+
+# Unit tests only
+pytest aurenet/tests/unit/ -v
+
+# With coverage
+pytest aurenet/tests/ --cov=aurenet --cov-report=html
+
+# Specific test
+pytest aurenet/tests/unit/test_events.py::TestEventBus::test_subscribe_and_publish -v
+```
+
+See [docs/TESTING.md](docs/TESTING.md) for testing guide.
+
+### Contributing
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Write tests for new functionality
+4. Ensure all tests pass (`pytest aurenet/tests/`)
+5. Commit changes (`git commit -m 'Add amazing feature'`)
+6. Push to branch (`git push origin feature/amazing-feature`)
+7. Open Pull Request
+
+**Code Quality:**
+- >75% test coverage required
+- ruff linting must pass
+- Type hints for public APIs
+- Docstrings for modules and classes
 
 ## Requirements
 
@@ -91,6 +204,7 @@ aurenet/
 - **OS**: Linux (tested on Arch/Hyprland)
 - **Monitoring**: CheckMK instance with API access
 - **Software**: OpenRGB server running
+- **Python**: 3.10 or higher
 
 ## Installation
 
